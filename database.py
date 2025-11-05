@@ -1,4 +1,4 @@
-from .models import Exercise
+from models import Exercise
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
