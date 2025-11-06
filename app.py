@@ -85,6 +85,7 @@ def get_workouts(*, session: Session = Depends(get_session)):
         <div class="workout-item">
             <div class="workout-header">
                 <span class="exercise-name">{workout.exercise_name}</span>
+                <span class="workout-created-at">{workout.created_at.strftime('%Y-%m-%d %H:%M')}</span>
             </div>
             <div class="workout-details">
                 <div class="detail-item">
