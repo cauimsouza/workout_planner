@@ -144,7 +144,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
     # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum
     # TODO: Handle case where last_workout.reps == 37 (which would cause division by zero)
     recommendations = []
-    onerepmax = (last_workout.weight + body_weight) * 36 / (37 - last_workout.reps)
+    onerepmax = (last_workout.weight + body_weight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
     for rpe in (i * 0.5 for i in range(12, 21)):
         r = reps + (10 - rpe)
         total_weight = onerepmax * (37 - r) / 36 # Weight including body weight
