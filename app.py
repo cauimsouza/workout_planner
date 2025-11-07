@@ -48,7 +48,7 @@ def create_workout(
     <div class="workout-item">
         <div class="workout-header">
             <span class="exercise-name">{workout.exercise_name}</span>
-            <span class="workout-id">#{workout.id}</span>
+            <span class="workout-created-at">{workout.created_at.strftime('%Y-%m-%d %H:%M')}</span>
         </div>
         <div class="workout-details">
             <div class="detail-item">
@@ -134,16 +134,23 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         <p>No previous data for this exercise. Please log a workout first to get recommendations.</p>
         </div>
         """
+    
+    # TODO: Make the body weight configurable
+    body_weight = 0
+    exercise = session.get(Exercise, exercise_name)
+    if exercise.dip_belt:
+        body_weight = 84
 
     # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum
     # TODO: Handle case where last_workout.reps == 37 (which would cause division by zero)
     recommendations = []
-    onerepmax = last_workout.weight * 36 / (37 - last_workout.reps)
+    onerepmax = (last_workout.weight + body_weight) * 36 / (37 - last_workout.reps)
     for rpe in (i * 0.5 for i in range(12, 21)):
         r = reps + (10 - rpe)
-        weight = onerepmax * (37 - r) / 36
-        weight_adjusted = round(weight / 1.25) * 1.25  # Lightest plate is 1.25 kg
-        recommendations.append((rpe, weight_adjusted))
+        total_weight = onerepmax * (37 - r) / 36 # Weight including body weight
+        weight = total_weight - body_weight
+        weight_rounded = round(weight / 1.25) * 1.25  # Lightest plate is 1.25 kg
+        recommendations.append((rpe, weight_rounded))
     
     table_rows = []
     for rpe, weight in recommendations:

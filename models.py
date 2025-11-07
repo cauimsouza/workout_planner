@@ -3,6 +3,7 @@ from sqlmodel import Field, SQLModel
 
 class Exercise(SQLModel, table=True):
     name: str = Field(primary_key=True)
+    dip_belt: bool = Field(default=False)
 
 class WorkoutBase(SQLModel):
     exercise_name: str = Field(index=True, foreign_key='exercise.name')

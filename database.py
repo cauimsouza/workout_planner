@@ -14,8 +14,9 @@ def seed_db():
             return
         
         exercises = [
-            Exercise(name='Pull-ups'),
-            Exercise(name='Dips'),
+            Exercise(name='Pull-ups', dip_belt=True),
+            Exercise(name='Dips', dip_belt=True),
+            Exercise(name='Bench press', dip_belt=False),
         ]
         session.add_all(exercises)
         session.commit()
