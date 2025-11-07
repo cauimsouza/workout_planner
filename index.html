@@ -183,11 +183,107 @@
                 gap: 20px;
             }
         }
+
+        /* Recommendation Table Styles */
+        .recommendation-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .recommendation-table thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .recommendation-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.9rem;
+        }
+
+        .recommendation-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .recommendation-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .recommendation-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .rpe-cell {
+            font-weight: 700;
+            color: #667eea;
+            font-size: 1.1rem;
+        }
+
+        .weight-cell {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .no-data-message {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px dashed #ddd;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>💪 Workout Tracker</h1>
+        
+        <!-- Weight Recommendation -->
+        <div class="card">
+            <h2>Get Weight Recommendation</h2>
+            <p style="color: #666; margin-bottom: 20px;">Based on your previous workouts, get a recommended weight for your target RPE.</p>
+            
+            <form id="recommendation-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="rec_exercise">Exercise</label>
+                        <select id="rec_exercise" name="exercise_name" required 
+                                hx-get="/exercises" 
+                                hx-trigger="load"
+                                hx-target="this"
+                                hx-swap="innerHTML">
+                            <option value="">Loading exercises...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="rec_reps">Target Reps</label>
+                        <input type="number" id="rec_reps" name="reps" required min="1" placeholder="e.g., 10">
+                    </div>
+                </div>
+
+                <button type="submit" 
+                        hx-get="/recommendations"
+                        hx-include="#recommendation-form"
+                        hx-target="#recommendation-results"
+                        hx-swap="innerHTML">
+                    Get Recommendation
+                </button>
+            </form>
+
+            <div id="recommendation-results" style="margin-top: 20px;">
+            </div>
+        </div>
         
         <!-- Create Workout Form -->
         <div class="card">

@@ -119,3 +119,51 @@ def get_exercises(*, session: Session = Depends(get_session)):
         options.append(f'<option value="{exercise.name}">{exercise.name}</option>')
     
     return "\n".join(options)
+
+@app.get('/recommendations', response_class=HTMLResponse)
+def get_recommendations(*, session: Session = Depends(get_session), exercise_name: str, reps: int):
+    last_workout = session.exec(
+        select(Workout)
+        .where(Workout.exercise_name == exercise_name)
+        .order_by(Workout.created_at.desc())
+        .limit(1)
+    ).first()
+    if not last_workout:
+        return """
+        <div class="no-data-message">
+        <p>No previous data for this exercise. Please log a workout first to get recommendations.</p>
+        </div>
+        """
+
+    # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum
+    # TODO: Handle case where last_workout.reps == 37 (which would cause division by zero)
+    recommendations = []
+    onerepmax = last_workout.weight * 36 / (37 - last_workout.reps)
+    for rpe in (i * 0.5 for i in range(12, 21)):
+        r = reps + (10 - rpe)
+        weight = onerepmax * (37 - r) / 36
+        weight_adjusted = round(weight / 1.25) * 1.25  # Lightest plate is 1.25 kg
+        recommendations.append((rpe, weight_adjusted))
+    
+    table_rows = []
+    for rpe, weight in recommendations:
+        table_rows.append(f"""
+        <tr>
+            <td class="rpe-cell">{rpe}</td>
+            <td class="weight-cell">{weight} kg</td>
+        </tr>
+        """)
+    return f"""
+    <table class="recommendation-table">
+        <thead>
+            <tr>
+                <th>RPE</th>
+                <th>Recommended Weight</th>
+            </tr>
+        </thead>
+        <tbody>
+            {''.join(table_rows)}
+        </tbody>
+    </table>
+    """
+    
