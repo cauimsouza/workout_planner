@@ -8,6 +8,10 @@ from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 
+def format(number: float) -> str:
+    """Format a float to remove unnecessary trailing zeros."""
+    return f'{number:g}'
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
@@ -57,7 +61,7 @@ def create_workout(
             </div>
             <div class="detail-item">
                 <div class="detail-label">Weight</div>
-                <div class="detail-value">{workout.weight} kg</div>
+                <div class="detail-value">{format(workout.weight)} kg</div>
             </div>
             <div class="detail-item">
                 <div class="detail-label">RPE</div>
@@ -94,7 +98,7 @@ def get_workouts(*, session: Session = Depends(get_session)):
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Weight (kg)</div>
-                    <div class="detail-value">{workout.weight}</div>
+                    <div class="detail-value">{format(workout.weight)}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">RPE</div>
@@ -156,8 +160,8 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
     for rpe, weight in recommendations:
         table_rows.append(f"""
         <tr>
-            <td class="rpe-cell">{rpe}</td>
-            <td class="weight-cell">{weight}</td>
+            <td class="rpe-cell">{format(rpe)}</td>
+            <td class="weight-cell">{format(weight)}</td>
             <td>
                 <button type="button"
                     onclick="document.getElementById('exercise_name').value=document.getElementById('rec_exercise').value;
