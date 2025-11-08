@@ -83,32 +83,32 @@ def get_workouts(*, session: Session = Depends(get_session)):
         </div>
         """
     
-    html_items = []
+    table_rows = []
     for workout in reversed(workouts):  # Show newest first
-        html_items.append(f"""
-        <div class="workout-item">
-            <div class="workout-header">
-                <span class="exercise-name">{workout.exercise_name}</span>
-                <span class="workout-created-at">{workout.created_at.strftime('%Y-%m-%d %H:%M')}</span>
-            </div>
-            <div class="workout-details">
-                <div class="detail-item">
-                    <div class="detail-label">Reps</div>
-                    <div class="detail-value">{workout.reps}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Weight (kg)</div>
-                    <div class="detail-value">{format(workout.weight)}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">RPE</div>
-                    <div class="detail-value">{format(workout.rpe)}</div>
-                </div>
-            </div>
-        </div>
+        table_rows.append(f"""
+        <tr>
+            <th scope="row">{workout.exercise_name}</th>
+            <td>{workout.reps}</td>
+            <td>{format(workout.weight)}</td>
+            <td>{format(workout.rpe)}</td>
+        </tr>
         """)
     
-    return "\n".join(html_items)
+    return f"""
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Exercise</th>
+                <th scope="col">Reps</th>
+                <th scope="col">Weight (kg)</th>
+                <th scope="col">RPE</th>
+            </tr>
+        </thead>
+        <tbody>
+            {''.join(table_rows)}
+        </tbody>
+    </table>
+    """
 
 @app.get('/exercises', response_class=HTMLResponse)
 def get_exercises(*, session: Session = Depends(get_session)):
@@ -160,8 +160,8 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
     for rpe, weight in recommendations:
         table_rows.append(f"""
         <tr>
-            <td class="rpe-cell">{format(rpe)}</td>
-            <td class="weight-cell">{format(weight)}</td>
+            <td>{format(rpe)}</td>
+            <td>{format(weight)}</td>
             <td>
                 <button type="button"
                     onclick="document.getElementById('exercise_name').value=document.getElementById('rec_exercise').value;
@@ -175,7 +175,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         </tr>
         """)
     return f"""
-    <table class="recommendation-table">
+    <table>
         <thead>
             <tr>
                 <th>RPE</th>

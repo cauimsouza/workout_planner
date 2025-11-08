@@ -13,62 +13,6 @@
             --pico-primary-hover: #764ba2;
         }
 
-        /* Workout item styling */
-        .workout-item {
-            margin-bottom: 1rem;
-            padding: 1.5rem;
-            border-left: 4px solid var(--pico-primary);
-            background: var(--pico-card-background-color);
-            border-radius: var(--pico-border-radius);
-        }
-
-        .workout-item:hover {
-            transform: translateX(5px);
-            transition: transform 0.2s;
-        }
-
-        .workout-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
-
-        .exercise-name {
-            font-size: 1.2rem;
-            font-weight: 700;
-        }
-
-        .workout-id {
-            font-size: 0.9rem;
-            color: var(--pico-muted-color);
-        }
-
-        .workout-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-
-        .detail-item {
-            text-align: center;
-        }
-
-        .detail-label {
-            font-size: 0.85rem;
-            color: var(--pico-muted-color);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .detail-value {
-            font-size: 1.3rem;
-            font-weight: 700;
-            color: var(--pico-primary);
-            margin-top: 0.25rem;
-        }
-
         /* Success message */
         .success-message {
             padding: 1rem;
@@ -91,21 +35,6 @@
             margin-bottom: 0.5rem;
         }
 
-        /* Recommendation table */
-        .recommendation-table {
-            width: 100%;
-            margin-top: 1rem;
-        }
-
-        .rpe-cell {
-            font-weight: 700;
-            color: var(--pico-primary);
-        }
-
-        .weight-cell {
-            font-weight: 600;
-        }
-
         .no-data-message {
             text-align: center;
             padding: 2rem;
@@ -113,16 +42,6 @@
             border-radius: var(--pico-border-radius);
             border: 2px dashed var(--pico-muted-border-color);
             color: var(--pico-muted-color);
-        }
-
-        .recommendation-info {
-            background: #e3f2fd;
-            border-left: 4px solid #2196f3;
-            padding: 1rem;
-            margin-top: 1rem;
-            border-radius: var(--pico-border-radius);
-            color: #1565c0;
-            font-size: 0.9rem;
         }
 
         /* Form row for side-by-side inputs */
@@ -189,41 +108,41 @@
                   hx-disinherit="*"
                   hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
                 
-                <label>
-                    Exercise
-                    <select id="exercise_name" name="exercise_name" required 
-                            hx-get="/exercises" 
-                            hx-trigger="load"
-                            hx-swap="innerHTML">
-                        <option value="">Loading exercises...</option>
-                    </select>
-                </label>
-
                 <div class="form-row">
+                    <label>
+                        Exercise
+                        <select id="exercise_name" name="exercise_name" required 
+                                hx-get="/exercises" 
+                                hx-trigger="load"
+                                hx-swap="innerHTML">
+                            <option value="">Loading exercises...</option>
+                        </select>
+                    </label>
                     <label>
                         Reps
                         <input type="number" id="reps" name="reps" required min="1" placeholder="e.g., 10">
                     </label>
+                </div>
 
+                <div class="form-row">
                     <label>
                         Weight (kg)
                         <input type="number" id="weight" name="weight" required min="0" step="0.25" placeholder="e.g., 50">
                     </label>
+                    <label>
+                        RPE
+                        <input type="number" id="rpe" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
+                    </label>
                 </div>
-
-                <label>
-                    RPE
-                    <input type="number" id="rpe" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
-                </label>
 
                 <button type="submit">Log Workout</button>
             </form>
         </article>
 
-        <!-- Past Workouts -->
+        <!-- Previous Workouts -->
         <article>
             <header>
-                <h2>Workout History</h2>
+                <h2>Previous Workouts</h2>
             </header>
             <div id="workouts-list" 
                  hx-get="/workouts" 
