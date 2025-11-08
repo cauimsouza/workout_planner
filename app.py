@@ -102,7 +102,7 @@ def get_workouts(*, session: Session = Depends(get_session)):
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">RPE</div>
-                    <div class="detail-value">{workout.rpe}</div>
+                    <div class="detail-value">{format(workout.rpe)}</div>
                 </div>
             </div>
         </div>
