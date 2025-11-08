@@ -1,141 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Workout Tracker</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* Custom color scheme */
+        :root {
+            --pico-primary: #667eea;
+            --pico-primary-hover: #764ba2;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            color: white;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
-        }
-
-        h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 1.5rem;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 10px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 600;
-        }
-
-        input, select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.3s;
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 12px 30px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            width: 100%;
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        button:active {
-            transform: translateY(0);
-        }
-
-        .workout-list {
-            display: grid;
-            gap: 15px;
-        }
-
+        /* Workout item styling */
         .workout-item {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-            transition: transform 0.2s;
+            margin-bottom: 1rem;
+            padding: 1.5rem;
+            border-left: 4px solid var(--pico-primary);
+            background: var(--pico-card-background-color);
+            border-radius: var(--pico-border-radius);
         }
 
         .workout-item:hover {
             transform: translateX(5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
         }
 
         .workout-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 0.5rem;
         }
 
         .exercise-name {
             font-size: 1.2rem;
             font-weight: 700;
-            color: #333;
         }
 
-        .workout-created-at {
+        .workout-id {
             font-size: 0.9rem;
-            color: #888;
+            color: var(--pico-muted-color);
         }
 
         .workout-details {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 15px;
-            margin-top: 10px;
+            gap: 1rem;
+            margin-top: 1rem;
         }
 
         .detail-item {
@@ -144,7 +57,7 @@
 
         .detail-label {
             font-size: 0.85rem;
-            color: #666;
+            color: var(--pico-muted-color);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -152,111 +65,89 @@
         .detail-value {
             font-size: 1.3rem;
             font-weight: 700;
-            color: #667eea;
-            margin-top: 5px;
+            color: var(--pico-primary);
+            margin-top: 0.25rem;
         }
 
+        /* Success message */
         .success-message {
+            padding: 1rem;
+            margin-bottom: 1rem;
             background: #d4edda;
             color: #155724;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            border-radius: var(--pico-border-radius);
             border: 1px solid #c3e6cb;
         }
 
+        /* Empty state */
         .empty-state {
             text-align: center;
-            padding: 40px;
-            color: #999;
+            padding: 2rem;
+            color: var(--pico-muted-color);
         }
 
         .empty-state-icon {
             font-size: 3rem;
-            margin-bottom: 10px;
+            margin-bottom: 0.5rem;
         }
 
-        @media (min-width: 768px) {
-            .form-row {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 20px;
-            }
-        }
-
-        /* Recommendation Table Styles */
+        /* Recommendation table */
         .recommendation-table {
             width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .recommendation-table thead {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .recommendation-table th {
-            padding: 15px;
-            text-align: left;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-size: 0.9rem;
-        }
-
-        .recommendation-table td {
-            padding: 15px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .recommendation-table tbody tr:hover {
-            background: #f8f9fa;
-        }
-
-        .recommendation-table tbody tr:last-child td {
-            border-bottom: none;
+            margin-top: 1rem;
         }
 
         .rpe-cell {
             font-weight: 700;
-            color: #667eea;
-            font-size: 1.1rem;
+            color: var(--pico-primary);
         }
 
         .weight-cell {
             font-weight: 600;
-            color: #333;
-            font-size: 1.1rem;
         }
 
         .no-data-message {
             text-align: center;
-            padding: 30px;
-            color: #999;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border: 2px dashed #ddd;
+            padding: 2rem;
+            background: var(--pico-card-background-color);
+            border-radius: var(--pico-border-radius);
+            border: 2px dashed var(--pico-muted-border-color);
+            color: var(--pico-muted-color);
+        }
+
+        .recommendation-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 1rem;
+            margin-top: 1rem;
+            border-radius: var(--pico-border-radius);
+            color: #1565c0;
+            font-size: 0.9rem;
+        }
+
+        /* Form row for side-by-side inputs */
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <main class="container">
         <h1>💪 Workout Tracker</h1>
         
         <!-- Weight Recommendation -->
-        <div class="card">
-            <h2>Get Weight Recommendation</h2>
-            <p style="color: #666; margin-bottom: 20px;">Based on your previous workouts, get a recommended weight for your target RPE.</p>
+        <article>
+            <header>
+                <h2>Get Weight Recommendation</h2>
+                <p>Based on your previous workouts, get a recommended weight for your target RPE.</p>
+            </header>
             
             <form id="recommendation-form">
                 <div class="form-row">
-                    <div class="form-group">
-                        <label for="rec_exercise">Exercise</label>
+                    <label>
+                        Exercise
                         <select id="rec_exercise" name="exercise_name" required 
                                 hx-get="/exercises" 
                                 hx-trigger="load"
@@ -264,12 +155,12 @@
                                 hx-swap="innerHTML">
                             <option value="">Loading exercises...</option>
                         </select>
-                    </div>
+                    </label>
 
-                    <div class="form-group">
-                        <label for="rec_reps">Target Reps</label>
+                    <label>
+                        Target Reps
                         <input type="number" id="rec_reps" name="reps" required min="1" placeholder="e.g., 10">
-                    </div>
+                    </label>
                 </div>
 
                 <button type="submit" 
@@ -281,21 +172,24 @@
                 </button>
             </form>
 
-            <div id="recommendation-results" style="margin-top: 20px;">
+            <div id="recommendation-results">
+                <!-- Recommendations will appear here -->
             </div>
-        </div>
+        </article>
         
         <!-- Create Workout Form -->
-        <div class="card">
-            <h2>Log New Workout</h2>
+        <article>
+            <header>
+                <h2>Log New Workout</h2>
+            </header>
             <div id="success-message"></div>
             <form hx-post="/workouts/" 
                   hx-target="#workouts-list" 
                   hx-swap="afterbegin"
                   hx-on::after-request="if(event.detail.successful) { this.reset(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
                 
-                <div class="form-group">
-                    <label for="exercise_name">Exercise</label>
+                <label>
+                    Exercise
                     <select id="exercise_name" name="exercise_name" required 
                             hx-get="/exercises" 
                             hx-trigger="load"
@@ -303,34 +197,35 @@
                             hx-swap="innerHTML">
                         <option value="">Loading exercises...</option>
                     </select>
-                </div>
+                </label>
 
                 <div class="form-row">
-                    <div class="form-group">
-                        <label for="reps">Reps</label>
+                    <label>
+                        Reps
                         <input type="number" id="reps" name="reps" required min="1" placeholder="e.g., 10">
-                    </div>
+                    </label>
 
-                    <div class="form-group">
-                        <label for="weight">Weight (kg)</label>
+                    <label>
+                        Weight (kg)
                         <input type="number" id="weight" name="weight" required min="0" step="0.5" placeholder="e.g., 50">
-                    </div>
+                    </label>
                 </div>
 
-                <div class="form-group">
-                    <label for="rpe">RPE (Rate of Perceived Exertion)</label>
+                <label>
+                    RPE (Rate of Perceived Exertion)
                     <input type="number" id="rpe" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
-                </div>
+                </label>
 
                 <button type="submit">Log Workout</button>
             </form>
-        </div>
+        </article>
 
         <!-- Past Workouts -->
-        <div class="card">
-            <h2>Workout History</h2>
+        <article>
+            <header>
+                <h2>Workout History</h2>
+            </header>
             <div id="workouts-list" 
-                 class="workout-list"
                  hx-get="/workouts" 
                  hx-trigger="load"
                  hx-swap="innerHTML">
@@ -339,7 +234,7 @@
                     <p>Loading workouts...</p>
                 </div>
             </div>
-        </div>
-    </div>
+        </article>
+    </main>
 </body>
 </html>
