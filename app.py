@@ -93,8 +93,8 @@ def get_workouts(*, session: Session = Depends(get_session)):
                     <div class="detail-value">{workout.reps}</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Weight</div>
-                    <div class="detail-value">{workout.weight} kg</div>
+                    <div class="detail-label">Weight (kg)</div>
+                    <div class="detail-value">{workout.weight}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">RPE</div>
@@ -157,7 +157,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         table_rows.append(f"""
         <tr>
             <td class="rpe-cell">{rpe}</td>
-            <td class="weight-cell">{weight} kg</td>
+            <td class="weight-cell">{weight}</td>
             <td>
                 <button type="button"
                     onclick="document.getElementById('exercise_name').value=document.getElementById('rec_exercise').value;
@@ -175,7 +175,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         <thead>
             <tr>
                 <th>RPE</th>
-                <th>Weight</th>
+                <th>Weight (kg)</th>
                 <th></th>
             </tr>
         </thead>
