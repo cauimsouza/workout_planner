@@ -158,6 +158,16 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         <tr>
             <td class="rpe-cell">{rpe}</td>
             <td class="weight-cell">{weight} kg</td>
+            <td>
+                <button type="button"
+                    onclick="document.getElementById('exercise_name').value=document.getElementById('rec_exercise').value;
+                             document.getElementById('reps').value=document.getElementById('rec_reps').value;
+                             document.getElementById('rpe').value={rpe};
+                             document.getElementById('weight').value={weight};
+                             document.getElementById('workout-form').scrollIntoView({{behavior: 'smooth'}});">
+                             Select
+                </button>
+            </td>
         </tr>
         """)
     return f"""
@@ -166,6 +176,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
             <tr>
                 <th>RPE</th>
                 <th>Weight</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
