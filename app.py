@@ -165,7 +165,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         <thead>
             <tr>
                 <th>RPE</th>
-                <th>Recommended Weight</th>
+                <th>Weight</th>
             </tr>
         </thead>
         <tbody>
