@@ -1,11 +1,10 @@
 from contextlib import asynccontextmanager
-import datetime
 from pathlib import Path
 
-from models import Exercise, WorkoutCreate, Workout, WorkoutPublic
+from models import Exercise, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 
