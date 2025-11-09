@@ -1,4 +1,4 @@
-from models import Exercise
+from models import Exercise, User
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -20,8 +20,11 @@ def seed_db():
             Exercise(name='Squat', dip_belt=False),
         ]
         session.add_all(exercises)
+
+        session.add(User(username="cauimsouza@gmail.com", bodyweight=84))
+
         session.commit()
-        print(f'Added {len(exercises)} exercises')
+        print(f'Added {len(exercises)} exercises and 1 user')
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

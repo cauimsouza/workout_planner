@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from models import Exercise, Workout
+from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
 from fastapi import Depends, FastAPI, Form
@@ -12,7 +12,7 @@ def format(number: float) -> str:
     """Format a float to remove unnecessary trailing zeros."""
     return f'{number:g}'
 
-def get_workout_row(workout: Workout) -> str:
+def get_workout_row_snippet(workout: Workout) -> str:
     return f"""
     <tr>
         <th scope="row">{workout.exercise_name}</th>
@@ -20,6 +20,15 @@ def get_workout_row(workout: Workout) -> str:
         <td>{format(workout.weight)}</td>
         <td>{format(workout.rpe)}</td>
     </tr>
+    """
+
+def get_bodyweight_snippet(bodyweight: float) -> str:
+    return f"""
+    <div id="bodyweight-display">
+        <p style="font-size: 0.9rem; color: var(--pico-muted-color); margin-top: 0.5rem;">
+            Current: <strong>{format(bodyweight)}</strong> 
+        </p>
+    </div>
     """
 
 @asynccontextmanager
@@ -39,14 +48,18 @@ def get_root():
     return html_path.read_text()
 
 @app.get('/bodyweight', response_class=HTMLResponse)
-def get_bodyweight():
-    return f"""
-    <div id="bodyweight-display">
-        <p style="font-size: 0.9rem; color: var(--pico-muted-color); margin-top: 0.5rem;">
-            💪 Current: <strong>80 kg</strong> 
-        </p>
-    </div>
-    """
+def get_bodyweight(session: Session=Depends(get_session)):
+    user = session.get(User, 1)
+    return get_bodyweight_snippet(user.bodyweight)
+
+@app.put('/bodyweight', response_class=HTMLResponse)
+def put_bodyweight(*, session: Session=Depends(get_session), bodyweight: float = Form(...)):
+    user = session.get(User, 1)
+    user.bodyweight = bodyweight
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return get_bodyweight_snippet(user.bodyweight)
 
 @app.post('/workouts/', response_class=HTMLResponse)
 def create_workout(
@@ -67,23 +80,24 @@ def create_workout(
     session.commit()
     session.refresh(workout)
     
-    return get_workout_row(workout)
+    return get_workout_row_snippet(workout)
 
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*, session: Session = Depends(get_session)):
     workouts = session.exec(select(Workout)).all()
     
-    if not workouts:
-        return """
-        <div class="empty-state">
-            <div class="empty-state-icon">📝</div>
-            <p>No workouts logged yet. Start by adding your first workout!</p>
-        </div>
-        """
+    # TODO: Fix
+    # if not workouts:
+    #     return """
+    #     <div class="empty-state">
+    #         <div class="empty-state-icon">📝</div>
+    #         <p>No workouts logged yet. Start by adding your first workout!</p>
+    #     </div>
+    #     """
     
     table_rows = []
     for workout in reversed(workouts):  # Show newest first
-        table_rows.append(get_workout_row(workout))    
+        table_rows.append(get_workout_row_snippet(workout))    
 
     return f"""
     <table>
@@ -103,7 +117,6 @@ def get_workouts(*, session: Session = Depends(get_session)):
 
 @app.get('/exercises', response_class=HTMLResponse)
 def get_exercises(*, session: Session = Depends(get_session)):
-    print('Fetching exercises from database')
     exercises = session.exec(select(Exercise)).all()
     
     if not exercises:
