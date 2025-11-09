@@ -13,6 +13,16 @@ def format(number: float) -> str:
     """Format a float to remove unnecessary trailing zeros."""
     return f'{number:g}'
 
+def get_workout_row(workout: Workout) -> str:
+    return f"""
+    <tr>
+        <th scope="row">{workout.exercise_name}</th>
+        <td>{workout.reps}</td>
+        <td>{format(workout.weight)}</td>
+        <td>{format(workout.rpe)}</td>
+    </tr>
+    """
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
@@ -58,15 +68,7 @@ def create_workout(
     session.commit()
     session.refresh(workout)
     
-    # Return HTML fragment for HTMX
-    return f"""
-        <tr>
-            <th scope="row">{workout.exercise_name}</th>
-            <td>{workout.reps}</td>
-            <td>{format(workout.weight)}</td>
-            <td>{format(workout.rpe)}</td>
-        </tr>
-    """
+    return get_workout_row(workout)
 
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*, session: Session = Depends(get_session)):
@@ -82,15 +84,8 @@ def get_workouts(*, session: Session = Depends(get_session)):
     
     table_rows = []
     for workout in reversed(workouts):  # Show newest first
-        table_rows.append(f"""
-        <tr>
-            <th scope="row">{workout.exercise_name}</th>
-            <td>{workout.reps}</td>
-            <td>{format(workout.weight)}</td>
-            <td>{format(workout.rpe)}</td>
-        </tr>
-        """)
-    
+        table_rows.append(get_workout_row(workout))    
+
     return f"""
     <table>
         <thead>
