@@ -60,7 +60,34 @@
 </head>
 <body>
     <main class="container">
-        <h1>💪 Workout Tracker</h1>
+        <h1>Workout Tracker</h1>
+
+        <!-- Update Bodyweight -->
+        <article>
+            <header>
+                <h2>Update Your Bodyweight</h2>
+            </header>
+            <form hx-put="/bodyweight" 
+                  hx-target="#bodyweight-display" 
+                  hx-swap="outerHTML">
+                  <div class="form-row"></div>
+                    <label>
+                        Bodyweight (kg)
+                        <input type="number" id="bodyweight" name="bodyweight" required min="40" max="120" step="0.5" placeholder="e.g., 75">
+                    </label>
+                    <div style="display: flex; align-items: end;">
+                        <button type="submit">Update</button>
+                    </div>
+                </div>
+            </form>
+            <div hx-get="/bodyweight"
+                 hx-trigger="load"
+                 hx-swap="outerHTML">
+                 <p style="font-size: 0.9rem; color: var(--pico-muted-color);">
+                    Loading...
+                 </p>
+            </div>
+        </article>
         
         <!-- Weight Recommendation -->
         <article>
@@ -109,7 +136,7 @@
             </header>
             <div id="success-message"></div>
             <form hx-post="/workouts/" 
-                  hx-target="#workouts-list" 
+                  hx-target="#workout-table-body" 
                   hx-swap="afterbegin"
                   hx-disinherit="*"
                   hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">

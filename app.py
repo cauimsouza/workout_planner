@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import datetime
 from pathlib import Path
 
 from models import Exercise, WorkoutCreate, Workout, WorkoutPublic
@@ -28,6 +29,16 @@ def get_root():
     html_path = Path(__file__).parent / 'index.html'
     return html_path.read_text()
 
+@app.get('/bodyweight', response_class=HTMLResponse)
+def get_bodyweight():
+    return f"""
+    <div id="bodyweight-display">
+        <p style="font-size: 0.9rem; color: var(--pico-muted-color); margin-top: 0.5rem;">
+            💪 Current: <strong>80 kg</strong> 
+        </p>
+    </div>
+    """
+
 @app.post('/workouts/', response_class=HTMLResponse)
 def create_workout(
     *,
@@ -49,26 +60,12 @@ def create_workout(
     
     # Return HTML fragment for HTMX
     return f"""
-    <div class="workout-item">
-        <div class="workout-header">
-            <span class="exercise-name">{workout.exercise_name}</span>
-            <span class="workout-created-at">{workout.created_at.strftime('%Y-%m-%d %H:%M')}</span>
-        </div>
-        <div class="workout-details">
-            <div class="detail-item">
-                <div class="detail-label">Reps</div>
-                <div class="detail-value">{workout.reps}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Weight</div>
-                <div class="detail-value">{format(workout.weight)} kg</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">RPE</div>
-                <div class="detail-value">{workout.rpe}</div>
-            </div>
-        </div>
-    </div>
+        <tr>
+            <th scope="row">{workout.exercise_name}</th>
+            <td>{workout.reps}</td>
+            <td>{format(workout.weight)}</td>
+            <td>{format(workout.rpe)}</td>
+        </tr>
     """
 
 @app.get('/workouts', response_class=HTMLResponse)
@@ -104,7 +101,7 @@ def get_workouts(*, session: Session = Depends(get_session)):
                 <th scope="col">RPE</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="workout-table-body">
             {''.join(table_rows)}
         </tbody>
     </table>
