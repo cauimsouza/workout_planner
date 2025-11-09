@@ -16,6 +16,7 @@ class WorkoutCreate(WorkoutBase):
 
 class Workout(WorkoutBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    bodyweight: float | None # Only set for exercises with dip_belt=True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class WorkoutPublic(WorkoutBase):

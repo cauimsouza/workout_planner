@@ -76,6 +76,10 @@ def create_workout(
         weight=weight,
         rpe=rpe
     )
+    if session.get(Exercise, exercise_name).dip_belt:
+        bodyweight = session.get(User, 1).bodyweight
+        workout.bodyweight = bodyweight
+
     session.add(workout)
     session.commit()
     session.refresh(workout)
@@ -142,21 +146,16 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
         <p>No previous data for this exercise. Please log a workout first to get recommendations.</p>
         </div>
         """
-    
-    # TODO: Make the body weight configurable
-    body_weight = 0
-    exercise = session.get(Exercise, exercise_name)
-    if exercise.dip_belt:
-        body_weight = 84
 
     # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum
     # TODO: Handle case where last_workout.reps == 37 (which would cause division by zero)
     recommendations = []
-    onerepmax = (last_workout.weight + body_weight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
+    bodyweight = 0 if last_workout.bodyweight is None else last_workout.bodyweight
+    onerepmax = (last_workout.weight + bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
     for rpe in (i * 0.5 for i in range(12, 21)):
         r = reps + (10 - rpe)
         total_weight = onerepmax * (37 - r) / 36 # Weight including body weight
-        weight = total_weight - body_weight
+        weight = total_weight - bodyweight
         weight_rounded = round(weight / 1.25) * 1.25  # Lightest plate is 1.25 kg
         recommendations.append((rpe, weight_rounded))
     
