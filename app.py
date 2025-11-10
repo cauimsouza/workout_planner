@@ -90,15 +90,6 @@ def create_workout(
 def get_workouts(*, session: Session = Depends(get_session)):
     workouts = session.exec(select(Workout)).all()
     
-    # TODO: Fix
-    # if not workouts:
-    #     return """
-    #     <div class="empty-state">
-    #         <div class="empty-state-icon">📝</div>
-    #         <p>No workouts logged yet. Start by adding your first workout!</p>
-    #     </div>
-    #     """
-    
     table_rows = []
     for workout in reversed(workouts):  # Show newest first
         table_rows.append(get_workout_row_snippet(workout))    
@@ -113,9 +104,7 @@ def get_workouts(*, session: Session = Depends(get_session)):
                 <th scope="col">RPE</th>
             </tr>
         </thead>
-        <tbody id="workout-table-body">
-            {''.join(table_rows)}
-        </tbody>
+        <tbody id="workout-table-body">{''.join(table_rows)}</tbody>
     </table>
     """
 
