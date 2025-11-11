@@ -21,10 +21,8 @@ def seed_db():
         ]
         session.add_all(exercises)
 
-        session.add(User(username="cauimsouza@gmail.com", bodyweight=84))
-
         session.commit()
-        print(f'Added {len(exercises)} exercises and 1 user')
+        print(f'Added {len(exercises)} exercises')
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

@@ -1,12 +1,68 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Annotated, Optional
 
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form
-from fastapi.responses import HTMLResponse
+import jwt
+from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from pwdlib import PasswordHash
 from sqlmodel import Session, select
+
+SECRET_KEY = '6af6c6841b0a9620371190eb5e2044ae98833f3dbd0fd4868c26358b74e161f1'
+ALGORITHM = 'HS256'
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+password_hash = PasswordHash.recommended()
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hashed password."""
+    return password_hash.verify(plain_password, hashed_password)
+
+def hash_password(password: str) -> str:
+    """Hash a plain password."""
+    return password_hash.hash(password)
+
+def create_session_token(user_id: int) -> str:
+    """Create a JWT token for the given user ID."""
+    token = jwt.encode({
+            'sub': str(user_id),
+            'exp': datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        },
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+    return token
+
+def verify_session_token(token: str) -> Optional[int]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get('sub')
+        if user_id is None:
+            return None
+        return int(user_id)
+    except:
+        return None
+
+def get_current_user_id(session_token: Optional[str] = Cookie(None)) -> int:
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated'
+        )
+    
+    user_id = verify_session_token(session_token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Invalid session'
+        )
+    return user_id
 
 def format(number: float) -> str:
     """Format a float to remove unnecessary trailing zeros."""
@@ -38,23 +94,96 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 401 and request.url.path != '/login':
+        return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
+    return HTMLResponse(content=str(exc.detail), status_code=exc.status_code)
+
 def get_session():
     with Session(engine) as session:
         yield session
 
+@app.post('/register', response_class=HTMLResponse)
+def register(
+    *,
+    session: Session = Depends(get_session),
+    username: str = Form(...),
+    password: str = Form(...),
+    bodyweight: float = Form(70)
+):
+    existing = session.exec(select(User).where(User.username == username)).first()
+    if existing:
+        return '<p style="color: red;">Username already exists</>'
+
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        bodyweight=bodyweight,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return '<p style="color: green;">Registration successful! Please login.</p>'
+
+@app.post('/login', response_class=HTMLResponse)
+def login(
+    *,
+    response: Response,
+    session: Session = Depends(get_session),
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    user = session.exec(select(User).where(User.username == username)).first()
+    if not user or not verify_password(password, user.hashed_password):
+        return '<p style="color: red;">Invalid username or password</p>'
+
+    token = create_session_token(user.id)
+    response.set_cookie(
+        key='session_token',
+        value=token,
+        httponly=True,
+        max_age=86400,
+        samesite='lax'
+    )
+
+    response.headers['HX-Redirect'] = '/'
+    return ''
+
+@app.post('/logout', response_class=HTMLResponse)
+def logout(response: Response):
+    response.delete_cookie('session_token')
+    response.headers['HX-Redirect'] = '/login'
+    return ''
+
+@app.get('/login', response_class=HTMLResponse)
+def get_login():
+    html_path = Path(__file__).parent / 'login.html'
+    return html_path.read_text()
+
 @app.get('/', response_class=HTMLResponse)
-def get_root():
+def get_root(_: int = Depends(get_current_user_id)):
     html_path = Path(__file__).parent / 'index.html'
     return html_path.read_text()
 
 @app.get('/bodyweight', response_class=HTMLResponse)
-def get_bodyweight(session: Session=Depends(get_session)):
-    user = session.get(User, 1)
+def get_bodyweight(
+    *,
+    session: Session=Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    user = session.get(User, current_user_id)
     return get_bodyweight_snippet(user.bodyweight)
 
 @app.put('/bodyweight', response_class=HTMLResponse)
-def put_bodyweight(*, session: Session=Depends(get_session), bodyweight: float = Form(...)):
-    user = session.get(User, 1)
+def put_bodyweight(
+    *,
+    session: Session=Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+    bodyweight: float = Form(...)
+):
+    user = session.get(User, current_user_id)
     user.bodyweight = bodyweight
     session.add(user)
     session.commit()
@@ -65,6 +194,7 @@ def put_bodyweight(*, session: Session=Depends(get_session), bodyweight: float =
 def create_workout(
     *,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
     exercise_name: str = Form(...), # What does this Form do?
     reps: int = Form(...),
     weight: float = Form(...),
@@ -74,10 +204,11 @@ def create_workout(
         exercise_name=exercise_name,
         reps=reps,
         weight=weight,
-        rpe=rpe
+        rpe=rpe,
+        user_id=current_user_id
     )
     if session.get(Exercise, exercise_name).dip_belt:
-        bodyweight = session.get(User, 1).bodyweight
+        bodyweight = session.get(User, current_user_id).bodyweight
         workout.bodyweight = bodyweight
 
     session.add(workout)
@@ -87,8 +218,11 @@ def create_workout(
     return get_workout_row_snippet(workout)
 
 @app.get('/workouts', response_class=HTMLResponse)
-def get_workouts(*, session: Session = Depends(get_session)):
-    workouts = session.exec(select(Workout)).all()
+def get_workouts(*,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    workouts = session.exec(select(Workout).where(Workout.user_id == current_user_id)).all()
     
     table_rows = []
     for workout in reversed(workouts):  # Show newest first
@@ -122,10 +256,15 @@ def get_exercises(*, session: Session = Depends(get_session)):
     return "\n".join(options)
 
 @app.get('/recommendations', response_class=HTMLResponse)
-def get_recommendations(*, session: Session = Depends(get_session), exercise_name: str, reps: int):
+def get_recommendations(*,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+    exercise_name: str,
+    reps: int
+):
     last_workout = session.exec(
         select(Workout)
-        .where(Workout.exercise_name == exercise_name)
+        .where(Workout.exercise_name == exercise_name, Workout.user_id == current_user_id)
         .order_by(Workout.created_at.desc())
         .limit(1)
     ).first()
@@ -138,7 +277,7 @@ def get_recommendations(*, session: Session = Depends(get_session), exercise_nam
     
     bodyweight, past_bodyweight = 0, 0
     if last_workout.bodyweight is not None:
-        bodyweight = session.get(User, 1).bodyweight
+        bodyweight = session.get(User, current_user_id).bodyweight
         past_bodyweight = last_workout.bodyweight
 
     # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum

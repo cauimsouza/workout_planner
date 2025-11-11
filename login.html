@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Workout Tracker</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        :root {
+            --pico-primary: #667eea;
+            --pico-primary-hover: #764ba2;
+        }
+        .auth-container {
+            max-width: 500px;
+            margin: 2rem auto;
+        }
+    </style>
+</head>
+<body>
+    <main class="container auth-container">
+        <article>
+            <header>
+                <h1>Workout Tracker</h1>
+            </header>
+            
+            <hgroup>
+                <h2>Login</h2>
+                <p>Enter your credentials to continue</p>
+            </hgroup>
+            
+            <div id="login-message"></div>
+            
+            <form hx-post="/login" 
+                  hx-target="#login-message"
+                  hx-swap="innerHTML">
+                <label>
+                    Username
+                    <input type="text" name="username" required autofocus>
+                </label>
+                <label>
+                    Password
+                    <input type="password" name="password" required>
+                </label>
+                <button type="submit">Login</button>
+            </form>
+            
+            <hr>
+            
+            <hgroup>
+                <h2>Register</h2>
+                <p>Create a new account</p>
+            </hgroup>
+            
+            <div id="register-message"></div>
+            
+            <form hx-post="/register"
+                  hx-target="#register-message"
+                  hx-swap="innerHTML">
+                <label>
+                    Username
+                    <input type="text" name="username" required>
+                </label>
+                <label>
+                    Password
+                    <input type="password" name="password" required minlength="8">
+                </label>
+                <label>
+                    Bodyweight (kg)
+                    <input type="number" name="bodyweight" value="70" step="0.1" min="40" max="200">
+                </label>
+                <button type="submit">Register</button>
+            </form>
+        </article>
+    </main>
+</body>
+</html>

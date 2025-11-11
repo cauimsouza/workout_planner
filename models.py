@@ -16,6 +16,7 @@ class WorkoutCreate(WorkoutBase):
 
 class Workout(WorkoutBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key='user.id')
     bodyweight: float | None # Only set for exercises with dip_belt=True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -26,4 +27,5 @@ class WorkoutPublic(WorkoutBase):
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     username: str = Field(unique=True)
+    hashed_password: str
     bodyweight: float = Field(default=70) # In kg
