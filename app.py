@@ -70,7 +70,6 @@ def register(
     session: Session = Depends(get_session),
     username: str = Form(...),
     password: str = Form(...),
-    bodyweight: float = Form(70)
 ):
     existing = session.exec(select(User).where(User.username == username)).first()
     if existing:
@@ -78,8 +77,7 @@ def register(
 
     user = User(
         username=username,
-        hashed_password=hash_password(password),
-        bodyweight=bodyweight,
+        hashed_password=hash_password(password)
     )
     session.add(user)
     session.commit()
