@@ -3,8 +3,6 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from pwdlib import PasswordHash
 
-from fastapi import Cookie, HTTPException, status
-
 SECRET_KEY = '6af6c6841b0a9620371190eb5e2044ae98833f3dbd0fd4868c26358b74e161f1'
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -39,18 +37,3 @@ def verify_session_token(token: str) -> int | None:
         return int(user_id)
     except:
         return None
-
-def get_current_user_id(session_token: str | None = Cookie(None)) -> int:
-    if not session_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Not authenticated'
-        )
-    
-    user_id = verify_session_token(session_token)
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Invalid session'
-        )
-    return user_id

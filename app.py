@@ -1,11 +1,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from auth import create_session_token, get_current_user_id, hash_password, verify_password
+from auth import create_session_token, hash_password, verify_password, verify_session_token
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
@@ -31,6 +31,21 @@ def get_bodyweight_snippet(bodyweight: float) -> str:
         </p>
     </div>
     """
+
+def get_current_user_id(session_token: str | None = Cookie(None)) -> int:
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated'
+        )
+    
+    user_id = verify_session_token(session_token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Invalid session'
+        )
+    return user_id
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
