@@ -39,6 +39,11 @@
             gap: 1rem;
         }
 
+        /* Remove button */
+        .remove-btn {
+            text-align: center;
+        }
+
         /* Recommendations table */
         #recommendation-results button {
             padding: 0.25rem 0.5rem;
@@ -111,34 +116,48 @@
         <article>
             <header>
                 <h2>Get Weight Recommendation</h2>
-                <p>Based on your previous workouts, get a recommended weight for your target reps and RPE.</p>
+                <p>Based on your previous workouts, get recommended weights for your target reps and RPE.</p>
             </header>
             
-            <form id="recommendation-form">
-                <div class="form-row">
-                    <label>
-                        Exercise
-                        <select id="rec_exercise" name="exercise_name" required 
-                                hx-get="/exercises" 
-                                hx-trigger="load"
-                                hx-target="this"
-                                hx-swap="innerHTML">
-                            <option value="">Loading exercises...</option>
-                        </select>
-                    </label>
-
-                    <label>
-                        Reps
-                        <input type="number" id="rec_reps" name="reps" required min="1" placeholder="e.g., 10">
-                    </label>
+            <form id="recommendation-form" method="post">
+                <div id="exercise-rows">
+                    <div class="exercise-row form-row">
+                        <label>
+                            Exercise
+                            <select name="exercise_name" required 
+                                    hx-get="/exercises" 
+                                    hx-trigger="load"
+                                    hx-target="this"
+                                    hx-swap="innerHTML">
+                                <option value="">Loading exercises...</option>
+                            </select>
+                        </label>
+                        <label>
+                            Reps
+                            <input type="number" name="reps" required min="1" placeholder="e.g., 10">
+                        </label>
+                        <label>
+                            RPE
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="number" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
+                                <button type="button" class="remove-btn" onclick="if (document.querySelectorAll('#exercise-rows .exercise-row').length > 1) { this.parentElement.parentElement.parentElement.remove(); updateRemoveButtons(); }">Remove</button>
+                            </div>
+                        </label>
+                    </div>
                 </div>
-
+                <button type="button" 
+                        hx-get="/add-exercise-row"
+                        hx-target="#exercise-rows"
+                        hx-swap="beforeend">
+                    Add
+                </button>
+                <br><br>
                 <button type="submit" 
-                        hx-get="/recommendations"
+                        hx-post="/recommendations"
                         hx-include="#recommendation-form"
                         hx-target="#recommendation-results"
                         hx-swap="innerHTML">
-                    Get Recommendation
+                    Get Recommendations
                 </button>
             </form>
 
@@ -206,5 +225,20 @@
             </div>
         </article>
     </main>
+    <script>
+        function updateRemoveButtons() {
+            const rows = document.querySelectorAll('#exercise-rows .exercise-row');
+            const buttons = document.querySelectorAll('#exercise-rows .remove-btn');
+            buttons.forEach(btn => {
+                btn.disabled = rows.length <= 1;
+            });
+        }
+        document.addEventListener('DOMContentLoaded', updateRemoveButtons);
+        document.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.target.id === 'exercise-rows') {
+                updateRemoveButtons();
+            }
+        });
+    </script>
 </body>
 </html>

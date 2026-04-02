@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import List
 
 from auth import create_session_token, hash_password, verify_password, verify_session_token
 from models import Exercise, User, Workout
@@ -153,27 +154,30 @@ def create_workout(
     *,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
-    exercise_name: str = Form(...), # What does this Form do?
-    reps: int = Form(...),
-    weight: float = Form(...),
-    rpe: float = Form(...)
+    exercise_name: List[str] = Form(...),
+    reps: List[int] = Form(...),
+    weight: List[float] = Form(...),
+    rpe: List[float] = Form(...)
 ):
-    workout = Workout(
-        exercise_name=exercise_name,
-        reps=reps,
-        weight=weight,
-        rpe=rpe,
-        user_id=current_user_id
-    )
-    if session.get(Exercise, exercise_name).dip_belt:
-        bodyweight = session.get(User, current_user_id).bodyweight
-        workout.bodyweight = bodyweight
+    snippets = []
+    for ex, r, w, rp in zip(exercise_name, reps, weight, rpe):
+        workout = Workout(
+            exercise_name=ex,
+            reps=r,
+            weight=w,
+            rpe=rp,
+            user_id=current_user_id
+        )
+        if session.get(Exercise, ex).dip_belt:
+            bodyweight = session.get(User, current_user_id).bodyweight
+            workout.bodyweight = bodyweight
 
-    session.add(workout)
-    session.commit()
-    session.refresh(workout)
+        session.add(workout)
+        session.commit()
+        session.refresh(workout)
+        snippets.append(get_workout_row_snippet(workout))
     
-    return get_workout_row_snippet(workout)
+    return ''.join(snippets)
 
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*,
@@ -213,72 +217,112 @@ def get_exercises(*, session: Session = Depends(get_session)):
     
     return "\n".join(options)
 
-@app.get('/recommendations', response_class=HTMLResponse)
+@app.get('/add-exercise-row', response_class=HTMLResponse)
+def add_exercise_row():
+    return """
+    <div class="exercise-row form-row">
+        <label>
+            Exercise
+            <select name="exercise_name" required 
+                    hx-get="/exercises" 
+                    hx-trigger="load"
+                    hx-target="this"
+                    hx-swap="innerHTML">
+                <option value="">Loading exercises...</option>
+            </select>
+        </label>
+        <label>
+            Reps
+            <input type="number" name="reps" required min="1" placeholder="e.g., 10">
+        </label>
+        <label>
+            RPE
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="number" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
+                <button type="button" class="remove-btn" onclick="if (document.querySelectorAll('#exercise-rows .exercise-row').length > 1) { this.parentElement.parentElement.parentElement.remove(); updateRemoveButtons(); }">Remove</button>
+            </div>
+        </label>
+    </div>
+    """
+
+@app.post('/recommendations', response_class=HTMLResponse)
 def get_recommendations(*,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
-    exercise_name: str,
-    reps: int
+    exercise_name: List[str] = Form(...),
+    reps: List[int] = Form(...),
+    rpe: List[float] = Form(...)
 ):
-    last_workout = session.exec(
-        select(Workout)
-        .where(Workout.exercise_name == exercise_name, Workout.user_id == current_user_id)
-        .order_by(Workout.created_at.desc())
-        .limit(1)
-    ).first()
-    if not last_workout:
+    results = []
+    for ex, r, rp in zip(exercise_name, reps, rpe):
+        last_workout = session.exec(
+            select(Workout)
+            .where(Workout.exercise_name == ex, Workout.user_id == current_user_id)
+            .order_by(Workout.created_at.desc())
+            .limit(1)
+        ).first()
+        if not last_workout:
+            continue  # or return error, but for now skip
+        
+        bodyweight = 0
+        past_bodyweight = 0
+        if last_workout.bodyweight is not None:
+            bodyweight = session.get(User, current_user_id).bodyweight
+            past_bodyweight = last_workout.bodyweight
+        
+        # Calculate 1RM
+        onerepmax = (last_workout.weight + past_bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
+        # For target
+        target_r = r + (10 - rp)
+        total_weight = onerepmax * (37 - target_r) / 36
+        weight = total_weight - bodyweight
+        weight_rounded = round(weight / 1.25) * 1.25
+        results.append((ex, r, rp, weight_rounded))
+    
+    if not results:
         return """
         <div class="no-data-message">
-        <p>No previous data for this exercise. Please log a workout first to get recommendations.</p>
+        <p>No previous data for the selected exercises. Please log workouts first to get recommendations.</p>
         </div>
         """
     
-    bodyweight, past_bodyweight = 0, 0
-    if last_workout.bodyweight is not None:
-        bodyweight = session.get(User, current_user_id).bodyweight
-        past_bodyweight = last_workout.bodyweight
-
-    # Calculate weights using the Brzycki's formula: https://en.wikipedia.org/wiki/One-repetition_maximum
-    # TODO: Handle case where last_workout.reps == 37 (which would cause division by zero)
-    recommendations = []
-    onerepmax = (last_workout.weight + past_bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
-    for rpe in (i * 0.5 for i in range(12, 21)):
-        r = reps + (10 - rpe)
-        total_weight = onerepmax * (37 - r) / 36 # Weight including body weight
-        weight = total_weight - bodyweight
-        weight_rounded = round(weight / 1.25) * 1.25  # Lightest plate is 1.25 kg
-        recommendations.append((rpe, weight_rounded))
-    
     table_rows = []
-    for rpe, weight in recommendations:
+    hidden_inputs = []
+    for ex, r, rp, w in results:
         table_rows.append(f"""
         <tr>
-            <td>{format(rpe)}</td>
-            <td>{format(weight)}</td>
-            <td>
-                <button type="button"
-                    onclick="document.getElementById('exercise_name').value=document.getElementById('rec_exercise').value;
-                             document.getElementById('reps').value=document.getElementById('rec_reps').value;
-                             document.getElementById('rpe').value={rpe};
-                             document.getElementById('weight').value={weight};
-                             document.getElementById('workout-form').scrollIntoView({{behavior: 'smooth'}});">
-                             Select
-                </button>
-            </td>
+            <td>{ex}</td>
+            <td>{r}</td>
+            <td>{format(rp)}</td>
+            <td>{format(w)}</td>
         </tr>
         """)
+        hidden_inputs.append(f'<input type="hidden" name="exercise_name" value="{ex}">')
+        hidden_inputs.append(f'<input type="hidden" name="reps" value="{r}">')
+        hidden_inputs.append(f'<input type="hidden" name="weight" value="{w}">')
+        hidden_inputs.append(f'<input type="hidden" name="rpe" value="{rp}">')
+    
     return f"""
     <table>
         <thead>
             <tr>
+                <th>Exercise</th>
+                <th>Reps</th>
                 <th>RPE</th>
                 <th>Weight (kg)</th>
-                <th></th>
             </tr>
         </thead>
         <tbody>
             {''.join(table_rows)}
         </tbody>
     </table>
+    <form hx-post="/workouts/" 
+          hx-target="#workout-table-body" 
+          hx-swap="afterbegin"
+          hx-disinherit="*"
+          hx-on::after-request="if(event.detail.successful) {{ document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workouts logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }}">
+        {''.join(hidden_inputs)}
+        <button type="submit">Log All</button>
+    </form>
     """
     
