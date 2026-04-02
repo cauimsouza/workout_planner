@@ -10,4 +10,4 @@ echo "Starting server..."
 echo "Access the app by clicking the 'Open in Browser' notification or check the Ports tab"
 echo ""
 
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000
