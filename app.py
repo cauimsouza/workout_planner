@@ -7,6 +7,8 @@ from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
@@ -54,6 +56,12 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/manifest.json")
+def get_manifest():
+    return FileResponse("manifest.json", media_type="application/manifest+json")
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
