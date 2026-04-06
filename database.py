@@ -2,7 +2,7 @@ from models import Exercise, User
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-db_file_name = 'database.db'
+db_file_name = '/app/data/database.db'
 db_url = f'sqlite:///{db_file_name}'
 engine = create_engine(db_url, echo=True, connect_args={'check_same_thread': False})
 

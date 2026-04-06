@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import os
 from pwdlib import PasswordHash
 
-SECRET_KEY = '6af6c6841b0a9620371190eb5e2044ae98833f3dbd0fd4868c26358b74e161f1'
+SECRET_KEY = os.environ['SECRET_KEY']
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
