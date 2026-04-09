@@ -1,40 +1,25 @@
-from datetime import datetime, timedelta, timezone
+import os
 
 import jwt
-import os
-from pwdlib import PasswordHash
 
-SECRET_KEY = os.environ['SECRET_KEY']
-ALGORITHM = 'HS256'
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+CF_ACCESS_TEAM_DOMAIN = os.environ["CF_ACCESS_TEAM_DOMAIN"]
+CF_ACCESS_AUD = os.environ["CF_ACCESS_AUD"]
 
-password_hash = PasswordHash.recommended()
+CERTS_URL = f"https://{CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com/cdn-cgi/access/certs"
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a hashed password."""
-    return password_hash.verify(plain_password, hashed_password)
+_jwk_client = jwt.PyJWKClient(CERTS_URL, cache_keys=True)
 
-def hash_password(password: str) -> str:
-    """Hash a plain password."""
-    return password_hash.hash(password)
 
-def create_session_token(user_id: int) -> str:
-    """Create a JWT token for the given user ID."""
-    token = jwt.encode({
-            'sub': str(user_id),
-            'exp': datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-        },
-        SECRET_KEY,
-        algorithm=ALGORITHM,
-    )
-    return token
-
-def verify_session_token(token: str) -> int | None:
+def verify_cf_access_token(token: str) -> str | None:
+    """Verify a Cloudflare Access JWT and return the user's email."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get('sub')
-        if user_id is None:
-            return None
-        return int(user_id)
-    except:
+        signing_key = _jwk_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key,
+            algorithms=["RS256"],
+            audience=CF_ACCESS_AUD,
+        )
+        return payload.get("email")
+    except Exception:
         return None

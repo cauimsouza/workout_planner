@@ -26,6 +26,5 @@ class WorkoutPublic(WorkoutBase):
 
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    username: str = Field(unique=True)
-    hashed_password: str
+    email: str = Field(unique=True)
     bodyweight: float = Field(default=70) # In kg
