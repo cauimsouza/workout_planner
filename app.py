@@ -203,33 +203,33 @@ def get_recommendation(*,
     weight_rounded = round(weight / 1.25) * 1.25
 
     return f"""
-    <table>
-        <thead>
-            <tr>
-                <th>Exercise</th>
-                <th>Reps</th>
-                <th>RPE</th>
-                <th>Weight (kg)</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>{exercise_name}</td>
-                <td>{reps}</td>
-                <td>{format(rpe)}</td>
-                <td>{format(weight_rounded)}</td>
-            </tr>
-        </tbody>
-    </table>
     <form hx-post="/workouts/"
           hx-target="#workout-table-body"
           hx-swap="afterbegin"
           hx-disinherit="*"
-          hx-on::after-request="if(event.detail.successful) {{ document.getElementById('success-message').innerHTML = '<div class=\\'success-message\\'>Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }}">
-        <input type="hidden" name="exercise_name" value="{exercise_name}">
-        <input type="hidden" name="reps" value="{reps}">
-        <input type="hidden" name="weight" value="{weight_rounded}">
-        <input type="hidden" name="rpe" value="{rpe}">
+          hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Workout logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }}">
+        <table>
+            <thead>
+                <tr>
+                    <th>Exercise</th>
+                    <th>Reps</th>
+                    <th>Weight (kg)</th>
+                    <th>RPE</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{exercise_name}<input type="hidden" name="exercise_name" value="{exercise_name}"></td>
+                    <td>{reps}<input type="hidden" name="reps" value="{reps}"></td>
+                    <td>{format(weight_rounded)}<input type="hidden" name="weight" value="{weight_rounded}"></td>
+                    <td>
+                        <input type="number" name="rpe" value="{format(rpe)}"
+                            min="1" max="10" step="0.5" style="width: 5rem; margin: 0; padding: 0.25rem;">
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="rec-success"></div>
         <button type="submit">Log</button>
     </form>
     """
