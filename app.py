@@ -187,19 +187,28 @@ def get_recommendation(*,
         <p>No previous data for this exercise. Please log a workout first to get a recommendation.</p>
         </div>
         """
+    
+    exercise = session.exec(select(Exercise).where(Exercise.name == exercise_name)).first()
+    if not exercise:
+        return """
+        <div class="no-data-message">
+        <p>Exercise not found</p>
+        </div>
+        """
 
     bodyweight = 0
-    past_bodyweight = 0
-    if last_workout.bodyweight is not None:
+    last_bodyweight = 0
+    if exercise.dip_belt:
         bodyweight = session.get(User, current_user.id).bodyweight
-        past_bodyweight = last_workout.bodyweight
+        last_bodyweight = last_workout.bodyweight if last_workout.bodyweight else bodyweight
 
     # Calculate 1RM
-    onerepmax = (last_workout.weight + past_bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
-    # For target
+    onerepmax = (last_workout.weight + last_bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
+
+    # Calculate target
     target_r = reps + (10 - rpe)
     total_weight = onerepmax * (37 - target_r) / 36
-    weight = total_weight - bodyweight
+    weight = total_weight - bodyweight # bodyweight is 0 when not dip_belt
     weight_rounded = round(weight / 1.25) * 1.25
 
     return f"""
