@@ -124,7 +124,7 @@
                         Exercise
                         <select name="exercise_name" required
                                 hx-get="/exercises"
-                                hx-trigger="load"
+                                hx-trigger="load, exercise-created from:body"
                                 hx-target="this"
                                 hx-swap="innerHTML">
                             <option value="">Loading exercises...</option>
