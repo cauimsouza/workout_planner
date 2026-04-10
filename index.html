@@ -7,6 +7,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="/static/offline.js" defer></script>
     <style>
         /* Custom color scheme */
         :root {
@@ -77,9 +78,19 @@
         .pagination button {
             width: 8rem;
         }
+
+        #offline-banner {
+            background: #fff3cd;
+            color: #856404;
+            text-align: center;
+            padding: 0.5rem;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #ffc107;
+        }
     </style>
 </head>
 <body>
+    <div id="offline-banner" hidden>You are offline. Showing cached data.</div>
     <main class="container">
         <h1>Workout Tracker</h1>
 

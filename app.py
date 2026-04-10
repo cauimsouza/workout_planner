@@ -6,7 +6,7 @@ from auth import verify_cf_access_token
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, Response, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,6 +17,8 @@ def format(number: float) -> str:
     return f'{number:g}'
 
 def format_date(date: datetime) -> str:
+    if date.year == datetime.now().year:
+        return date.strftime("%d %b")
     return date.strftime("%d %b %y")
 
 def get_workout_row_snippet(workout: Workout) -> str:
@@ -74,6 +76,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/manifest.json")
 def get_manifest():
     return FileResponse("manifest.json", media_type="application/manifest+json")
+
+@app.get("/sw.js")
+def get_service_worker():
+    return FileResponse("sw.js", media_type="application/javascript")
 
 @app.get('/login')
 def get_login():
@@ -160,18 +166,20 @@ def get_workouts(*,
 
     return f"""
     <div id="previous-workouts">
+        <div style="overflow-x: auto">
         <table>
             <thead>
                 <tr>
                     <th scope="col">Date</th>
-                    <th scope="col">Exercise</th>
+                    <th scope="col">Ex.</th>
                     <th scope="col">Reps</th>
-                    <th scope="col">Weight (kg)</th>
+                    <th scope="col">Weight</th>
                     <th scope="col">RPE</th>
                 </tr>
             </thead>
             <tbody>{''.join(table_rows)}</tbody>
         </table>
+        </div>
         <div class="pagination">
             <div>{previous_button}</div>
             <div class="pagination-next">{next_button}</div>
@@ -266,6 +274,77 @@ def get_recommendation(*,
         <button type="submit">Log</button>
     </form>
     """
+
+@app.get('/api/sync')
+def api_sync(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    exercises = session.exec(select(Exercise)).all()
+    workouts = session.exec(
+        select(Workout)
+        .where(Workout.user_id == current_user.id)
+        .order_by(Workout.created_at.desc())
+    ).all()
+    user = session.get(User, current_user.id)
+    return {
+        "exercises": [{"name": e.name, "dip_belt": e.dip_belt} for e in exercises],
+        "workouts": [
+            {
+                "id": w.id,
+                "exercise_name": w.exercise_name,
+                "reps": w.reps,
+                "weight": w.weight,
+                "rpe": w.rpe,
+                "bodyweight": w.bodyweight,
+                "created_at": w.created_at.isoformat(),
+            }
+            for w in workouts
+        ],
+        "bodyweight": user.bodyweight,
+    }
+
+@app.post('/api/sync')
+async def api_sync_push(*,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    body = await request.json()
+    actions = body.get('actions', [])
+
+    for action in actions:
+        action_type = action['type']
+        data = action['data']
+
+        if action_type == 'create_workout':
+            exercise = session.get(Exercise, data['exercise_name'])
+            workout = Workout(
+                exercise_name=data['exercise_name'],
+                reps=int(data['reps']),
+                weight=float(data['weight']),
+                rpe=float(data['rpe']),
+                user_id=current_user.id,
+            )
+            if exercise and exercise.dip_belt:
+                workout.bodyweight = session.get(User, current_user.id).bodyweight
+            if 'created_at' in action:
+                workout.created_at = datetime.fromisoformat(action['created_at'])
+            session.add(workout)
+
+        elif action_type == 'update_bodyweight':
+            user = session.get(User, current_user.id)
+            user.bodyweight = float(data['bodyweight'])
+            session.add(user)
+
+        elif action_type == 'create_exercise':
+            existing = session.exec(select(Exercise).where(Exercise.name == data['name'])).first()
+            if not existing:
+                exercise = Exercise(name=data['name'], dip_belt=bool(data.get('dip_belt', False)))
+                session.add(exercise)
+
+    session.commit()
+    return {"status": "ok", "replayed": len(actions)}
 
 @app.post('/exercises', response_class=HTMLResponse)
 def create_exercise(*,
