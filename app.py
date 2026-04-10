@@ -131,7 +131,7 @@ def create_workout(
     session.add(workout)
     session.commit()
     session.refresh(workout)
-    return get_workout_row_snippet(workout)
+    return "<div><p>Workout created</p></div>"
 
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*,
