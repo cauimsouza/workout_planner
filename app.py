@@ -5,7 +5,7 @@ from auth import verify_cf_access_token
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Response, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -183,7 +183,7 @@ def get_recommendation(*,
 
     if not last_workout:
         return """
-        <div class="no-data-message">
+        <div class="failure-message">
         <p>No previous data for this exercise. Please log a workout first to get a recommendation.</p>
         </div>
         """
@@ -191,7 +191,7 @@ def get_recommendation(*,
     exercise = session.exec(select(Exercise).where(Exercise.name == exercise_name)).first()
     if not exercise:
         return """
-        <div class="no-data-message">
+        <div class="failure-message">
         <p>Exercise not found</p>
         </div>
         """
@@ -241,4 +241,34 @@ def get_recommendation(*,
         <div class="rec-success"></div>
         <button type="submit">Log</button>
     </form>
+    """
+
+@app.post('/exercises', response_class=HTMLResponse)
+def create_exercise(*,
+    response: Response,
+    session: Session = Depends(get_session),
+    _: User = Depends(get_current_user),
+    name: str = Form(...),
+    dip_belt: bool = Form(default=False)
+):
+    exercise = session.exec(select(Exercise).where(Exercise.name == name)).first()
+    if exercise:
+        return f"""
+        <div class="failure-message">
+        <p>Exercise {name} already exists</p>
+        </div>
+        """
+    
+    exercise = Exercise(
+        name=name,
+        dip_belt=dip_belt
+    )
+    session.add(exercise)
+    session.commit()
+
+    response.headers["HX-Trigger"] = "exercise-created"
+    return f"""
+    <div class="success-message">
+    <p>Exercise {name} successfully created</p>
+    </div>
     """
