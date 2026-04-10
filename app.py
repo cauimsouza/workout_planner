@@ -5,7 +5,7 @@ from auth import verify_cf_access_token
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
 
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, Response, status
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Response, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -131,26 +131,46 @@ def create_workout(
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=5, ge=1, le=20)
 ):
-    workouts = session.exec(select(Workout).where(Workout.user_id == current_user.id)).all()
+    workouts = session.exec(
+        select(Workout)
+        .where(Workout.user_id == current_user.id)
+        .order_by(Workout.created_at.desc())
+        .offset(offset)
+        .limit(limit + 1) # Fetch one extra row to determine if a next page exists
+    ).all()
+    table_rows = [get_workout_row_snippet(workout) for workout in workouts[:limit]]
 
-    table_rows = []
-    for workout in reversed(workouts):  # Show newest first
-        table_rows.append(get_workout_row_snippet(workout))
+    def make_button(label:str, offset: int, limit: int) -> str:
+        return f"""
+            <button hx-get="/workouts?offset={offset}&limit={limit}"
+                    hx-target="#previous-workouts"
+                    hx-swap="outerHTML">{label}</button>
+        """
+    previous_button = make_button("Previous", max(offset - limit, 0), limit) if offset > 0 else ""
+    next_button = make_button("Next", offset + limit, limit) if len(workouts) > limit else ""
 
     return f"""
-    <table>
-        <thead>
-            <tr>
-                <th scope="col">Exercise</th>
-                <th scope="col">Reps</th>
-                <th scope="col">Weight (kg)</th>
-                <th scope="col">RPE</th>
-            </tr>
-        </thead>
-        <tbody id="workout-table-body">{''.join(table_rows)}</tbody>
-    </table>
+    <div id="previous-workouts">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Exercise</th>
+                    <th scope="col">Reps</th>
+                    <th scope="col">Weight (kg)</th>
+                    <th scope="col">RPE</th>
+                </tr>
+            </thead>
+            <tbody>{''.join(table_rows)}</tbody>
+        </table>
+        <div class="pagination">
+            <div>{previous_button}</div>
+            <div class="pagination-next">{next_button}</div>
+        </div>
+    </div>
     """
 
 @app.get('/exercises', response_class=HTMLResponse)
@@ -213,9 +233,7 @@ def get_recommendation(*,
 
     return f"""
     <form hx-post="/workouts/"
-          hx-target="#workout-table-body"
-          hx-swap="afterbegin"
-          hx-disinherit="*"
+          hx-swap="none"
           hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Workout logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }}">
         <table>
             <thead>

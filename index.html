@@ -46,14 +46,14 @@
         }
 
         /* Previous Workouts table */
-        #workouts-list:has(tbody:empty) table {
+        #previous-workouts:has(tbody:empty) table {
             display: none;
         }
-        #workouts-list:has(tbody:empty) {
+        #previous-workouts:has(tbody:empty) {
             text-align: center;
             color: var(--pico-muted-color);
         }
-        #workouts-list:has(tbody:empty)::after {
+        #previous-workouts:has(tbody:empty)::after {
             content: "No workouts logged yet. Start by adding your first workout!";
         }
 
@@ -65,6 +65,17 @@
         .empty-state-icon {
             font-size: 3rem;
             margin-bottom: 0.5rem;
+        }
+
+        .pagination {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+        .pagination .pagination-next {
+            justify-self: end;
+        }
+        .pagination button {
+            width: 8rem;
         }
     </style>
 </head>
@@ -149,9 +160,7 @@
             </header>
             <div id="success-message"></div>
             <form hx-post="/workouts/" 
-                  hx-target="#workout-table-body" 
-                  hx-swap="afterbegin"
-                  hx-disinherit="*"
+                  hx-swap="none"
                   hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
                 
                 <div class="form-row">
@@ -190,10 +199,10 @@
             <header>
                 <h2>Previous Workouts</h2>
             </header>
-            <div id="workouts-list" 
+            <div id="previous-workouts" 
                  hx-get="/workouts" 
                  hx-trigger="load"
-                 hx-swap="innerHTML">
+                 hx-swap="outerHTML">
                 <div class="empty-state">
                     <div class="empty-state-icon">⏳</div>
                     <p>Loading workouts...</p>
