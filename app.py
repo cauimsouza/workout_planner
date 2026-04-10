@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from auth import verify_cf_access_token
@@ -15,10 +16,14 @@ def format(number: float) -> str:
     """Format a float to remove unnecessary trailing zeros."""
     return f'{number:g}'
 
+def format_date(date: datetime) -> str:
+    return date.strftime("%d %b %y")
+
 def get_workout_row_snippet(workout: Workout) -> str:
     return f"""
     <tr>
-        <th scope="row">{workout.exercise_name}</th>
+        <th scope="row">{format_date(workout.created_at)}</th>
+        <td>{workout.exercise_name}</td>
         <td>{workout.reps}</td>
         <td>{format(workout.weight)}</td>
         <td>{format(workout.rpe)}</td>
@@ -158,6 +163,7 @@ def get_workouts(*,
         <table>
             <thead>
                 <tr>
+                    <th scope="col">Date</th>
                     <th scope="col">Exercise</th>
                     <th scope="col">Reps</th>
                     <th scope="col">Weight (kg)</th>
