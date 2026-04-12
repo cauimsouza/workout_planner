@@ -235,19 +235,23 @@ def get_recommendation(*,
     reps: int = Form(..., ge=MIN_REPS, le=MAX_REPS),
     rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE)
 ):
-    last_workout = session.exec(
+    # Bad days at the gym when we feel weaker than usual are common.
+    # To be robust against that and estimulate the user, we use their best
+    # performance over the past 4 days.
+    LOOKBACK_WINDOW = 4
+    workouts = session.exec(
         select(Workout)
         .where(Workout.exercise_name == exercise_name, Workout.user_id == current_user.id)
         .order_by(Workout.created_at.desc())
-        .limit(1)
-    ).first()
-
-    if not last_workout:
+        .limit(LOOKBACK_WINDOW)
+    ).all()
+    if not workouts:
         return """
         <div class="failure-message">
         <p>No previous data for this exercise. Please log a workout first to get a recommendation.</p>
         </div>
         """
+    onerepmax = max(get_onerepmax(workout) for workout in workouts)
     
     exercise = session.exec(select(Exercise).where(Exercise.name == exercise_name)).first()
     if not exercise:
@@ -256,9 +260,8 @@ def get_recommendation(*,
         <p>Exercise not found</p>
         </div>
         """
-
-    onerepmax = get_onerepmax(last_workout)
     bodyweight = session.get(User, current_user.id).bodyweight if exercise.dip_belt else None
+
     weight = get_target_weight(onerepmax, reps, bodyweight, rpe)
     return f"""
     <form hx-post="/workouts/"
