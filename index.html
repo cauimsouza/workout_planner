@@ -7,6 +7,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/offline.js" defer></script>
     <style>
         /* Custom color scheme */
@@ -114,11 +115,11 @@
                     </label>
                     <label>
                         Reps
-                        <input type="number" name="reps" required min="1" placeholder="e.g., 10">
+                        <input type="number" name="reps" required min="1" max="20" placeholder="e.g., 10">
                     </label>
                     <label>
                         RPE
-                        <input type="number" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
+                        <input type="number" name="rpe" required min="6" max="10" step="0.5" placeholder="6-10">
                     </label>
                 </div>
                 <button type="submit"
@@ -157,7 +158,7 @@
                     </label>
                     <label>
                         Reps
-                        <input type="number" id="reps" name="reps" required min="1" placeholder="e.g., 10">
+                        <input type="number" id="reps" name="reps" required min="1" max="20" placeholder="e.g., 10">
                     </label>
                 </div>
 
@@ -168,7 +169,7 @@
                     </label>
                     <label>
                         RPE
-                        <input type="number" id="rpe" name="rpe" required min="1" max="10" step="0.5" placeholder="1-10">
+                        <input type="number" id="rpe" name="rpe" required min="6" max="10" step="0.5" placeholder="6-10">
                     </label>
                 </div>
 
@@ -219,6 +220,35 @@
             </div>
         </article>
 
+        <!-- See Progress -->
+        <article>
+            <header>
+                <h2>Progress</h2>
+            </header>
+            <div class="form-row">
+                <label>
+                    Exercise
+                    <select id="progress-exercise"
+                        hx-get="/exercises"
+                        hx-trigger="load, exercise-created from:body"
+                        hx-swap="innerHTML">
+                        <option value="">Loading exercises...</option>
+                    </select>
+                </label>
+                <label>
+                    Time Period
+                    <select id="progress-period">
+                        <option value="30">1 Month</option>
+                        <option value="180" selected>6 Months</option>
+                        <option value="365">1 Year</option>
+                    </select>
+                </label>
+            </div>
+            <button onclick="loadProgress()">Show Progress</button>
+            <div id="progress-no-data" class="failure-message" hidden>No data for this exercise in the selected period.</div>
+            <canvas id="progress-chart" hidden></canvas>
+        </article>
+
         <!-- Create Exercise -->
         <article>
             <header>
@@ -244,5 +274,74 @@
             <div id="create-exercise-result"></div>
         </article>
     </main>
+
+    <!-- JS script for handling the progress chart -->
+    <script>
+        let progressChart = null;
+
+        async function loadProgress() {
+            const exercise = document.getElementById('progress-exercise').value;
+            const days = document.getElementById('progress-period').value;
+
+            if (!exercise) return;
+
+            const response = await fetch(`/progress?exercise_name=${encodeURIComponent(exercise)}&days=${days}`);
+            if (!response.ok) return;
+            const data = await response.json();
+
+            // Formats the date as "12 Apr" if the date is on the current year, and as "12 Apr 2020" otherwise.
+            function formatDate(isoString) {
+                const date = new Date(isoString);
+                const day = date.getDate();
+                const month = date.toLocaleString('en', { month: 'short' });
+                const year = date.getFullYear();
+
+                if (year === new Date().getFullYear()) {
+                    return `${day} ${month}`;
+                }
+                return `${day} ${month} ${year}`;
+            }
+            const labels = data.onerepmax.map(d => formatDate(d.date));
+            const values = data.onerepmax.map(d => d.value);
+
+            const canvas = document.getElementById('progress-chart');
+            const noData = document.getElementById('progress-no-data');
+
+            if (progressChart) {
+                progressChart.destroy();
+                progressChart = null;
+            }
+
+            if (values.length === 0) {
+                canvas.hidden = true;
+                noData.hidden = false;
+                return;
+            }
+
+            noData.hidden = true;
+            canvas.hidden = false;
+
+            progressChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `${data.exercise} Estimated 1RM (kg)`,
+                        data: values,
+                        borderColor: '#667eea',
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+    </script>
 </body>
 </html>

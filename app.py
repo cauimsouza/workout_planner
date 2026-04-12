@@ -1,10 +1,16 @@
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from auth import verify_cf_access_token
 from models import Exercise, User, Workout
 from database import create_db_and_tables, engine
+
+MIN_REPS = 1
+MAX_REPS = 20
+MIN_RPE = 6
+MAX_RPE = 10
+LIGHTEST_PLATE = 1.25
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, Response, status
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +26,27 @@ def format_date(date: datetime) -> str:
     if date.year == datetime.now().year:
         return date.strftime("%d %b")
     return date.strftime("%d %b %y")
+
+def get_onerepmax(workout: Workout) -> float:
+    '''Estimate the external 1RM (excluding bodyweight) using Brzycki's formula.
+
+    For dip-belt exercises, this is the added weight the user could
+    lift for a single rep. For other exercises, this equals the total 1RM.
+    '''
+    bodyweight = workout.bodyweight if workout.bodyweight else 0
+    return (workout.weight + bodyweight) * 36 / (37 - (workout.reps + (10 - workout.rpe))) - bodyweight
+
+def get_target_weight(onerepmax: float, reps: int, current_bodyweight: float | None, rpe: float) -> float:
+    '''Calculate the external weight to use for a target reps/RPE.
+
+    onerepmax: external 1RM as returned by get_onerepmax.
+    current_bodyweight: user's current bodyweight for dip-belt exercises, None otherwise.
+    '''
+    bw = current_bodyweight if current_bodyweight else 0
+    target_r = reps + (10 - rpe)
+    total_weight = (onerepmax + bw) * (37 - target_r) / 36
+    weight = total_weight - bw
+    return round(weight / LIGHTEST_PLATE) * LIGHTEST_PLATE
 
 def get_workout_row_snippet(workout: Workout) -> str:
     return f"""
@@ -119,9 +146,9 @@ def create_workout(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     exercise_name: str = Form(...),
-    reps: int = Form(...),
+    reps: int = Form(..., ge=MIN_REPS, le=MAX_REPS),
     weight: float = Form(...),
-    rpe: float = Form(...)
+    rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE)
 ):
     workout = Workout(
         exercise_name=exercise_name,
@@ -205,8 +232,8 @@ def get_recommendation(*,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     exercise_name: str = Form(...),
-    reps: int = Form(...),
-    rpe: float = Form(...)
+    reps: int = Form(..., ge=MIN_REPS, le=MAX_REPS),
+    rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE)
 ):
     last_workout = session.exec(
         select(Workout)
@@ -230,21 +257,9 @@ def get_recommendation(*,
         </div>
         """
 
-    bodyweight = 0
-    last_bodyweight = 0
-    if exercise.dip_belt:
-        bodyweight = session.get(User, current_user.id).bodyweight
-        last_bodyweight = last_workout.bodyweight if last_workout.bodyweight else bodyweight
-
-    # Calculate 1RM
-    onerepmax = (last_workout.weight + last_bodyweight) * 36 / (37 - (last_workout.reps + (10 - last_workout.rpe)))
-
-    # Calculate target
-    target_r = reps + (10 - rpe)
-    total_weight = onerepmax * (37 - target_r) / 36
-    weight = total_weight - bodyweight # bodyweight is 0 when not dip_belt
-    weight_rounded = round(weight / 1.25) * 1.25
-
+    onerepmax = get_onerepmax(last_workout)
+    bodyweight = session.get(User, current_user.id).bodyweight if exercise.dip_belt else None
+    weight = get_target_weight(onerepmax, reps, bodyweight, rpe)
     return f"""
     <form hx-post="/workouts/"
           hx-swap="none"
@@ -262,7 +277,7 @@ def get_recommendation(*,
                 <tr>
                     <td>{exercise_name}<input type="hidden" name="exercise_name" value="{exercise_name}"></td>
                     <td>{reps}<input type="hidden" name="reps" value="{reps}"></td>
-                    <td>{format(weight_rounded)}<input type="hidden" name="weight" value="{weight_rounded}"></td>
+                    <td>{format(weight)}<input type="hidden" name="weight" value="{weight}"></td>
                     <td>
                         <input type="number" name="rpe" value="{format(rpe)}"
                             min="1" max="10" step="0.5" style="width: 5rem; margin: 0; padding: 0.25rem;">
@@ -354,7 +369,7 @@ def create_exercise(*,
     name: str = Form(...),
     dip_belt: bool = Form(default=False)
 ):
-    exercise = session.exec(select(Exercise).where(Exercise.name == name)).first()
+    exercise = session.get(Exercise, name)
     if exercise:
         return f"""
         <div class="failure-message">
@@ -375,3 +390,34 @@ def create_exercise(*,
     <p>Exercise {name} successfully created</p>
     </div>
     """
+
+@app.get('/progress')
+def get_progress(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    exercise_name: str = Query(...),
+    days: int = Query(gt=0, le=365)
+):
+    exercise = session.get(Exercise, exercise_name)
+    if not exercise:
+        raise HTTPException(status_code=404, detail=f"Exercise \'{exercise_name}\' not found")
+    
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
+    workouts = session.exec(
+        select(Workout)
+        .where(Workout.user_id == current_user.id)
+        .where(Workout.exercise_name == exercise_name)
+        .where(Workout.created_at >= start_date)
+        .order_by(Workout.created_at)
+    ).all()
+
+    return {
+        'exercise': exercise_name,
+        'onerepmax': [
+            {
+                'date': workout.created_at.isoformat(),
+                'value': get_onerepmax(workout),
+            }
+            for workout in workouts
+        ]
+    }

@@ -6,6 +6,7 @@ const STATIC_ASSETS = [
 ];
 const CDN_ASSETS = [
     'https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css',
+    'https://cdn.jsdelivr.net/npm/chart.js',
     'https://unpkg.com/htmx.org@1.9.10',
 ];
 
