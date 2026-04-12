@@ -1,169 +1,74 @@
-# Workout Tracker with HTMX
+# Workout Planner
 
-A simple workout tracking application built with FastAPI and HTMX.
+A workout tracking PWA that recommends weights based on past performance using Brzycki's 1RM formula.
 
 ## Features
 
-- **Log Workouts**: Record exercises with reps, weight, and RPE (Rate of Perceived Exertion)
-- **View History**: See all your past workouts in a clean, organized interface
-- **Real-time Updates**: HTMX provides dynamic updates without page reloads
+- **Weight recommendations** -- estimates your 1RM from recent workouts (best of last 4 sessions) and suggests a weight for your target reps/RPE. The recommended weight is editable before logging.
+- **Dip-belt support** -- tracks bodyweight separately so added-weight exercises (pull-ups, dips) get accurate 1RM calculations.
+- **Progress charts** -- visualise estimated 1RM over time per exercise (powered by Chart.js).
+- **Offline mode** -- service worker + IndexedDB let you log workouts offline; pending actions sync when connectivity returns.
+- **Multi-user** -- authentication via Cloudflare Access (JWT); each user has isolated data.
 
 ## Tech Stack
 
-- **Backend**: FastAPI + SQLModel
-- **Frontend**: HTMX + Vanilla CSS
-- **Database**: SQLite
+- **Backend**: FastAPI, SQLModel, SQLite
+- **Frontend**: HTMX, Pico CSS, Chart.js
+- **Auth**: Cloudflare Access (JWT verification)
+- **Infra**: Docker, service worker for offline PWA support
 
-## Setup in GitHub Codespaces
-
-### 1. Open in Codespaces
-
-Create a new Codespace from your repository. The environment will automatically set up Python.
-
-### 2. Install Dependencies
+## Running locally
 
 ```bash
 pip install -r requirements.txt
-```
 
-### 3. Run the Application
+# Required environment variables for Cloudflare Access auth:
+export CF_ACCESS_TEAM_DOMAIN="your-team"
+export CF_ACCESS_AUD="your-audience-tag"
 
-```bash
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The `--host 0.0.0.0` flag is important for Codespaces to properly forward the port.
+## Running with Docker
 
-### 4. Access the Application
-
-Once the server starts:
-1. GitHub Codespaces will show a notification about port 8000
-2. Click "Open in Browser" or go to the "Ports" tab
-3. Click the local address for port 8000
-
-Alternatively, you can manually forward the port:
-- Press `Ctrl/Cmd + Shift + P`
-- Type "Forward a Port"
-- Enter `8000`
-- Click the globe icon to open in browser
+```bash
+docker build -t workout-planner .
+docker run -p 8000:8000 \
+  -e CF_ACCESS_TEAM_DOMAIN="your-team" \
+  -e CF_ACCESS_AUD="your-audience-tag" \
+  workout-planner
+```
 
 ## Project Structure
 
 ```
-.
-├── app.py           # FastAPI application with HTMX endpoints
-├── models.py        # SQLModel database models
-├── database.py      # Database configuration and seeding
+├── app.py           # FastAPI app -- routes, 1RM math, HTML fragments
+├── models.py        # SQLModel models (User, Exercise, Workout)
+├── database.py      # Engine setup and seed data
+├── auth.py          # Cloudflare Access JWT verification
 ├── index.html       # HTMX frontend
-├── requirements.txt # Python dependencies
-└── README.md        # This file
+├── sw.js            # Service worker (offline caching & writes)
+├── static/          # Icons and offline JS
+├── manifest.json    # PWA manifest
+├── Dockerfile
+└── requirements.txt
 ```
 
-## API Endpoints
+## API
 
-### Web Interface
-- `GET /` - Serves the HTML interface
+### Pages
+- `GET /` -- main UI
 
-### HTMX Endpoints (return HTML fragments)
-- `POST /workouts/` - Create a new workout (returns HTML fragment)
-- `GET /workouts` - Get all workouts (returns HTML list)
-- `GET /exercises` - Get exercise options (returns HTML options)
+### HTMX endpoints (return HTML fragments)
+- `GET /exercises` -- exercise `<option>` list
+- `POST /exercises` -- create a new exercise
+- `GET /workouts` -- paginated workout history
+- `POST /workouts/` -- log a workout
+- `GET /bodyweight` -- current bodyweight display
+- `PUT /bodyweight` -- update bodyweight
+- `POST /recommendations` -- get a weight recommendation
 
-## Usage
-
-### Adding a Workout
-
-1. Select an exercise from the dropdown
-2. Enter the number of reps
-3. Enter the weight in kilograms
-4. Enter your RPE (1-10 scale)
-5. Click "Log Workout"
-
-The new workout will appear at the top of your history instantly!
-
-### Understanding RPE
-
-RPE (Rate of Perceived Exertion) is a scale from 1-10:
-- **1-3**: Very light effort
-- **4-6**: Moderate effort
-- **7-8**: Hard effort, could do 2-3 more reps
-- **9**: Very hard, maybe 1 more rep
-- **10**: Maximum effort
-
-## Adding More Exercises
-
-You can add more exercises by modifying the `seed_db()` function in `database.py`:
-
-```python
-exercises = [
-    Exercise(name='Pull-ups'),
-    Exercise(name='Dips'),
-    Exercise(name='Squats'),       # Add new exercises here
-    Exercise(name='Bench Press'),
-    Exercise(name='Deadlifts'),
-]
-```
-
-Then delete `database.db` and restart the server to reseed the database.
-
-## Development Tips for Codespaces
-
-### Auto-reload on Changes
-The `--reload` flag enables auto-reload when you save files.
-
-### Viewing Logs
-FastAPI logs will appear in the terminal. Set `echo=True` in `database.py` to see SQL queries.
-
-### Debugging
-You can use breakpoints in VS Code. Click to the left of line numbers to add breakpoints, then use the debugger.
-
-### Database Management
-The SQLite database (`database.db`) is created automatically. You can inspect it with:
-
-```bash
-sqlite3 database.db
-```
-
-Useful SQLite commands:
-```sql
-.tables                 -- List all tables
-SELECT * FROM exercise; -- View exercises
-SELECT * FROM workout;  -- View workouts
-```
-
-## Customization
-
-### Styling
-All CSS is in `index.html`. Modify the `<style>` section to change colors, layouts, etc.
-
-### Adding Features
-Some ideas:
-- Add date tracking
-- Filter workouts by exercise
-- Display workout statistics
-- Export workout data
-- Add sets tracking (multiple sets per workout)
-
-## Troubleshooting
-
-### Port Already in Use
-If port 8000 is busy, use a different port:
-```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8080
-```
-
-### Database Issues
-Delete `database.db` to reset:
-```bash
-rm database.db
-```
-
-### Import Errors
-Make sure you're in the project directory and have installed requirements:
-```bash
-pip install -r requirements.txt --break-system-packages
-```
-
-## License
-
-MIT License - feel free to use and modify!
+### JSON API
+- `GET /progress?exercise_name=...&days=...` -- 1RM history for charting
+- `GET /api/sync` -- pull all user data (for offline cache)
+- `POST /api/sync` -- replay offline actions
