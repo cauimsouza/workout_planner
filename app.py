@@ -277,7 +277,10 @@ def get_recommendation(*,
                 <tr>
                     <td>{exercise_name}<input type="hidden" name="exercise_name" value="{exercise_name}"></td>
                     <td>{reps}<input type="hidden" name="reps" value="{reps}"></td>
-                    <td>{format(weight)}<input type="hidden" name="weight" value="{weight}"></td>
+                    <td>
+                        <input type="number" name="weight" value="{format(weight)}"
+                            min="0" step="{LIGHTEST_PLATE}" style="width: 5rem; margin: 0; padding: 0.25rem;">
+                    </td>
                     <td>
                         <input type="number" name="rpe" value="{format(rpe)}"
                             min="1" max="10" step="0.5" style="width: 5rem; margin: 0; padding: 0.25rem;">
