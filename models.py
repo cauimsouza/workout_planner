@@ -7,6 +7,7 @@ class Exercise(SQLModel, table=True):
 
 class WorkoutBase(SQLModel):
     exercise_name: str = Field(index=True, foreign_key='exercise.name')
+    sets: int = Field(default=3)
     reps: int
     weight: float
     rpe: float

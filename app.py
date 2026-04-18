@@ -10,6 +10,9 @@ MIN_REPS = 1
 MAX_REPS = 20
 MIN_RPE = 6
 MAX_RPE = 10
+MIN_SETS = 1
+MAX_SETS = 10
+DEFAULT_SETS = 3
 LIGHTEST_PLATE = 1.25
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, Response, status
@@ -59,6 +62,7 @@ def get_workout_row_snippet(workout: Workout) -> str:
                     hx-swap="outerHTML">✕</button>
         </th>
         <td>{workout.exercise_name}</td>
+        <td>{workout.sets}</td>
         <td>{workout.reps}</td>
         <td>{format(workout.weight)}</td>
         <td>{format(workout.rpe)}</td>
@@ -155,10 +159,12 @@ def create_workout(
     reps: int = Form(..., ge=MIN_REPS, le=MAX_REPS),
     weight: float = Form(...),
     rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE),
+    sets: int = Form(default=DEFAULT_SETS, ge=MIN_SETS, le=MAX_SETS),
     workout_date: date | None = Form(default=None)
 ):
     workout = Workout(
         exercise_name=exercise_name,
+        sets=sets,
         reps=reps,
         weight=weight,
         rpe=rpe,
@@ -223,6 +229,7 @@ def get_workouts(*,
                 <tr>
                     <th scope="col">Date</th>
                     <th scope="col">Ex.</th>
+                    <th scope="col">Sets</th>
                     <th scope="col">Reps</th>
                     <th scope="col">Weight</th>
                     <th scope="col">RPE</th>
@@ -295,6 +302,7 @@ def get_recommendation(*,
             <thead>
                 <tr>
                     <th>Exercise</th>
+                    <th>Sets</th>
                     <th>Reps</th>
                     <th>Weight (kg)</th>
                     <th>RPE</th>
@@ -303,7 +311,14 @@ def get_recommendation(*,
             <tbody>
                 <tr>
                     <td>{exercise_name}<input type="hidden" name="exercise_name" value="{exercise_name}"></td>
-                    <td>{reps}<input type="hidden" name="reps" value="{reps}"></td>
+                    <td>
+                        <input type="number" name="sets" value="{DEFAULT_SETS}"
+                            min="{MIN_SETS}" max="{MAX_SETS}" step="1" style="width: 4rem; margin: 0; padding: 0.25rem;">
+                    </td>
+                    <td>
+                        <input type="number" name="reps" value="{reps}"
+                            min="{MIN_REPS}" max="{MAX_REPS}" step="1" style="width: 4rem; margin: 0; padding: 0.25rem;">
+                    </td>
                     <td>
                         <input type="number" name="weight" value="{format(weight)}"
                             min="0" step="{LIGHTEST_PLATE}" style="width: 5rem; margin: 0; padding: 0.25rem;">
@@ -338,6 +353,7 @@ def api_sync(*,
             {
                 "id": w.id,
                 "exercise_name": w.exercise_name,
+                "sets": w.sets,
                 "reps": w.reps,
                 "weight": w.weight,
                 "rpe": w.rpe,
@@ -366,6 +382,7 @@ async def api_sync_push(*,
             exercise = session.get(Exercise, data['exercise_name'])
             workout = Workout(
                 exercise_name=data['exercise_name'],
+                sets=int(data.get('sets', DEFAULT_SETS)),
                 reps=int(data['reps']),
                 weight=float(data['weight']),
                 rpe=float(data['rpe']),

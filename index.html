@@ -158,7 +158,7 @@
             <div id="success-message"></div>
             <form hx-post="/workouts/" 
                   hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('workout_date').valueAsDate = new Date(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
+                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('workout_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
                 
                 <div class="form-row">
                     <label>
@@ -177,6 +177,10 @@
                 </div>
 
                 <div class="form-row">
+                    <label>
+                        Sets
+                        <input type="number" id="sets" name="sets" required min="1" max="10" value="3">
+                    </label>
                     <label>
                         Reps
                         <input type="number" id="reps" name="reps" required min="1" max="20" placeholder="e.g., 10">
