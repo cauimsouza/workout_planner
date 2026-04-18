@@ -144,25 +144,29 @@
             <div id="success-message"></div>
             <form hx-post="/workouts/" 
                   hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
+                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('workout_date').valueAsDate = new Date(); document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
                 
                 <div class="form-row">
                     <label>
+                        Date
+                        <input type="date" id="workout_date" name="workout_date">
+                    </label>
+                    <label>
                         Exercise
-                        <select id="exercise_name" name="exercise_name" required 
-                                hx-get="/exercises" 
+                        <select id="exercise_name" name="exercise_name" required
+                                hx-get="/exercises"
                                 hx-trigger="load, exercise-created from:body"
                                 hx-swap="innerHTML">
                             <option value="">Loading exercises...</option>
                         </select>
                     </label>
+                </div>
+
+                <div class="form-row">
                     <label>
                         Reps
                         <input type="number" id="reps" name="reps" required min="1" max="20" placeholder="e.g., 10">
                     </label>
-                </div>
-
-                <div class="form-row">
                     <label>
                         Weight (kg)
                         <input type="number" id="weight" name="weight" required min="0" step="0.25" placeholder="e.g., 50">
@@ -274,6 +278,10 @@
             <div id="create-exercise-result"></div>
         </article>
     </main>
+
+    <script>
+        document.getElementById('workout_date').valueAsDate = new Date();
+    </script>
 
     <!-- JS script for handling the progress chart -->
     <script>

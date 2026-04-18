@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from auth import verify_cf_access_token
@@ -148,7 +148,8 @@ def create_workout(
     exercise_name: str = Form(...),
     reps: int = Form(..., ge=MIN_REPS, le=MAX_REPS),
     weight: float = Form(...),
-    rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE)
+    rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE),
+    workout_date: date | None = Form(default=None)
 ):
     workout = Workout(
         exercise_name=exercise_name,
@@ -157,6 +158,8 @@ def create_workout(
         rpe=rpe,
         user_id=current_user.id
     )
+    if workout_date:
+        workout.created_at = datetime.combine(workout_date, datetime.now(timezone.utc).time(), tzinfo=timezone.utc)
     if session.get(Exercise, exercise_name).dip_belt:
         bodyweight = session.get(User, current_user.id).bodyweight
         workout.bodyweight = bodyweight
