@@ -29,3 +29,4 @@ class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(unique=True)
     bodyweight: float = Field(default=70) # In kg
+    is_admin: bool = Field(default=False)

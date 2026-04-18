@@ -123,9 +123,18 @@ def get_login():
     return RedirectResponse(url='/')
 
 @app.get('/', response_class=HTMLResponse)
-def get_root(_: User = Depends(get_current_user)):
+def get_root(current_user: User = Depends(get_current_user)):
     html_path = Path(__file__).parent / 'index.html'
-    return html_path.read_text()
+    html = html_path.read_text()
+    if not current_user.is_admin:
+        import re
+        html = re.sub(
+            r'<!-- BEGIN Create Movement -->.*?<!-- END Create Movement -->',
+            '',
+            html,
+            flags=re.DOTALL,
+        )
+    return html
 
 @app.get('/bodyweight', response_class=HTMLResponse)
 def get_bodyweight(
@@ -403,6 +412,8 @@ async def api_sync_push(*,
             session.add(user)
 
         elif action_type == 'create_movement':
+            if not current_user.is_admin:
+                continue
             existing = session.exec(select(Movement).where(Movement.name == data['name'])).first()
             if not existing:
                 movement = Movement(name=data['name'], dip_belt=bool(data.get('dip_belt', False)))
@@ -415,10 +426,13 @@ async def api_sync_push(*,
 def create_movement(*,
     response: Response,
     session: Session = Depends(get_session),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     name: str = Form(...),
     dip_belt: bool = Form(default=False)
 ):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
     movement = session.get(Movement, name)
     if movement:
         return f"""
