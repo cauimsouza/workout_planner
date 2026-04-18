@@ -158,7 +158,7 @@
             <div id="success-message"></div>
             <form hx-post="/exercises/"
                   hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/exercises/')) { this.reset(); document.getElementById('exercise_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>Exercise logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
+                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/exercises/')) { this.reset(); document.getElementById('exercise_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>Exercise logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); document.body.dispatchEvent(new Event('exercise-logged')); }">
 
                 <div class="form-row">
                     <label>
@@ -206,7 +206,7 @@
             </header>
             <div id="previous-exercises"
                  hx-get="/exercises"
-                 hx-trigger="load"
+                 hx-trigger="load, exercise-logged from:body"
                  hx-swap="outerHTML">
                 <div class="empty-state">
                     <div class="empty-state-icon">⏳</div>

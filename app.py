@@ -222,7 +222,10 @@ def get_exercises(*,
     next_button = make_button("Next", offset + limit, limit) if len(exercises) > limit else ""
 
     return f"""
-    <div id="previous-exercises">
+    <div id="previous-exercises"
+         hx-get="/exercises"
+         hx-trigger="exercise-logged from:body"
+         hx-swap="outerHTML">
         <div style="overflow-x: auto">
         <table>
             <thead>
@@ -297,7 +300,7 @@ def get_recommendation(*,
     return f"""
     <form hx-post="/exercises/"
           hx-swap="none"
-          hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }}">
+          hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); document.body.dispatchEvent(new Event('exercise-logged')); }}">
         <table>
             <thead>
                 <tr>
