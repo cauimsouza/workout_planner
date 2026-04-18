@@ -51,7 +51,13 @@ def get_target_weight(onerepmax: float, reps: int, current_bodyweight: float | N
 def get_workout_row_snippet(workout: Workout) -> str:
     return f"""
     <tr>
-        <th scope="row">{format_date(workout.created_at)}</th>
+        <th scope="row">{format_date(workout.created_at)}
+            <button class="delete-btn"
+                    hx-post="/workouts/{workout.id}/delete"
+                    hx-confirm="Delete this workout?"
+                    hx-target="#previous-workouts"
+                    hx-swap="outerHTML">✕</button>
+        </th>
         <td>{workout.exercise_name}</td>
         <td>{workout.reps}</td>
         <td>{format(workout.weight)}</td>
@@ -168,6 +174,21 @@ def create_workout(
     session.commit()
     session.refresh(workout)
     return "<div><p>Workout created</p></div>"
+
+# POST instead of DELETE because htmx 1.9 doesn't swap response bodies from DELETE requests.
+@app.post('/workouts/{workout_id}/delete', response_class=HTMLResponse)
+def delete_workout(
+    *,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    workout_id: int
+):
+    workout = session.get(Workout, workout_id)
+    if not workout or workout.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    session.delete(workout)
+    session.commit()
+    return get_workouts(session=session, current_user=current_user, offset=0, limit=5)
 
 @app.get('/workouts', response_class=HTMLResponse)
 def get_workouts(*,
