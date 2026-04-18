@@ -458,13 +458,20 @@ def get_progress(*,
         .order_by(Exercise.created_at)
     ).all()
 
+    daily_best: dict[date, float] = {}
+    for exercise in exercises:
+        day = exercise.created_at.date()
+        orm = get_onerepmax(exercise)
+        if day not in daily_best or orm > daily_best[day]:
+            daily_best[day] = orm
+
     return {
         'exercise': exercise_name,
         'onerepmax': [
             {
-                'date': exercise.created_at.isoformat(),
-                'value': get_onerepmax(exercise),
+                'date': day.isoformat(),
+                'value': value,
             }
-            for exercise in exercises
+            for day, value in sorted(daily_best.items())
         ]
     }
