@@ -11,11 +11,11 @@ function openDB() {
         const request = indexedDB.open('workout-tracker', 2);
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
-            if (!db.objectStoreNames.contains('exercises')) {
-                db.createObjectStore('exercises', { keyPath: 'name' });
+            if (!db.objectStoreNames.contains('movements')) {
+                db.createObjectStore('movements', { keyPath: 'name' });
             }
-            if (!db.objectStoreNames.contains('workouts')) {
-                const store = db.createObjectStore('workouts', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('exercises')) {
+                const store = db.createObjectStore('exercises', { keyPath: 'id' });
                 store.createIndex('by_exercise', 'exercise_name');
                 store.createIndex('by_created_at', 'created_at');
             }
@@ -111,8 +111,8 @@ async function syncData() {
         const data = await response.json();
         const db = await openDB();
 
+        await putAll(db, 'movements', data.movements);
         await putAll(db, 'exercises', data.exercises);
-        await putAll(db, 'workouts', data.workouts);
         await putOne(db, 'user', { key: 'bodyweight', value: data.bodyweight });
 
         console.log('[offline] Synced data to IndexedDB');

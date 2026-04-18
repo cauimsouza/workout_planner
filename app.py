@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from auth import verify_cf_access_token
-from models import Exercise, User, Workout
+from models import Exercise, Movement, User
 from database import create_db_and_tables, engine
 
 MIN_REPS = 1
@@ -30,20 +30,20 @@ def format_date(date: datetime) -> str:
         return date.strftime("%d %b")
     return date.strftime("%d %b %y")
 
-def get_onerepmax(workout: Workout) -> float:
+def get_onerepmax(exercise: Exercise) -> float:
     '''Estimate the external 1RM (excluding bodyweight) using Brzycki's formula.
 
-    For dip-belt exercises, this is the added weight the user could
-    lift for a single rep. For other exercises, this equals the total 1RM.
+    For dip-belt movements, this is the added weight the user could
+    lift for a single rep. For other movements, this equals the total 1RM.
     '''
-    bodyweight = workout.bodyweight if workout.bodyweight else 0
-    return (workout.weight + bodyweight) * 36 / (37 - (workout.reps + (10 - workout.rpe))) - bodyweight
+    bodyweight = exercise.bodyweight if exercise.bodyweight else 0
+    return (exercise.weight + bodyweight) * 36 / (37 - (exercise.reps + (10 - exercise.rpe))) - bodyweight
 
 def get_target_weight(onerepmax: float, reps: int, current_bodyweight: float | None, rpe: float) -> float:
     '''Calculate the external weight to use for a target reps/RPE.
 
     onerepmax: external 1RM as returned by get_onerepmax.
-    current_bodyweight: user's current bodyweight for dip-belt exercises, None otherwise.
+    current_bodyweight: user's current bodyweight for dip-belt movements, None otherwise.
     '''
     bw = current_bodyweight if current_bodyweight else 0
     target_r = reps + (10 - rpe)
@@ -51,21 +51,21 @@ def get_target_weight(onerepmax: float, reps: int, current_bodyweight: float | N
     weight = total_weight - bw
     return round(weight / LIGHTEST_PLATE) * LIGHTEST_PLATE
 
-def get_workout_row_snippet(workout: Workout) -> str:
+def get_exercise_row_snippet(exercise: Exercise) -> str:
     return f"""
     <tr>
-        <th scope="row">{format_date(workout.created_at)}
+        <th scope="row">{format_date(exercise.created_at)}
             <button class="delete-btn"
-                    hx-post="/workouts/{workout.id}/delete"
-                    hx-confirm="Delete this workout?"
-                    hx-target="#previous-workouts"
+                    hx-post="/exercises/{exercise.id}/delete"
+                    hx-confirm="Delete this exercise?"
+                    hx-target="#previous-exercises"
                     hx-swap="outerHTML">✕</button>
         </th>
-        <td>{workout.exercise_name}</td>
-        <td>{workout.sets}</td>
-        <td>{workout.reps}</td>
-        <td>{format(workout.weight)}</td>
-        <td>{format(workout.rpe)}</td>
+        <td>{exercise.exercise_name}</td>
+        <td>{exercise.sets}</td>
+        <td>{exercise.reps}</td>
+        <td>{format(exercise.weight)}</td>
+        <td>{format(exercise.rpe)}</td>
     </tr>
     """
 
@@ -150,8 +150,8 @@ def put_bodyweight(
     session.refresh(user)
     return get_bodyweight_snippet(user.bodyweight)
 
-@app.post('/workouts/', response_class=HTMLResponse)
-def create_workout(
+@app.post('/exercises/', response_class=HTMLResponse)
+def create_exercise(
     *,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -160,9 +160,9 @@ def create_workout(
     weight: float = Form(...),
     rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE),
     sets: int = Form(default=DEFAULT_SETS, ge=MIN_SETS, le=MAX_SETS),
-    workout_date: date | None = Form(default=None)
+    exercise_date: date | None = Form(default=None)
 ):
-    workout = Workout(
+    exercise = Exercise(
         exercise_name=exercise_name,
         sets=sets,
         reps=reps,
@@ -170,65 +170,65 @@ def create_workout(
         rpe=rpe,
         user_id=current_user.id
     )
-    if workout_date:
-        workout.created_at = datetime.combine(workout_date, datetime.now(timezone.utc).time(), tzinfo=timezone.utc)
-    if session.get(Exercise, exercise_name).dip_belt:
+    if exercise_date:
+        exercise.created_at = datetime.combine(exercise_date, datetime.now(timezone.utc).time(), tzinfo=timezone.utc)
+    if session.get(Movement, exercise_name).dip_belt:
         bodyweight = session.get(User, current_user.id).bodyweight
-        workout.bodyweight = bodyweight
+        exercise.bodyweight = bodyweight
 
-    session.add(workout)
+    session.add(exercise)
     session.commit()
-    session.refresh(workout)
-    return "<div><p>Workout created</p></div>"
+    session.refresh(exercise)
+    return "<div><p>Exercise logged</p></div>"
 
 # POST instead of DELETE because htmx 1.9 doesn't swap response bodies from DELETE requests.
-@app.post('/workouts/{workout_id}/delete', response_class=HTMLResponse)
-def delete_workout(
+@app.post('/exercises/{exercise_id}/delete', response_class=HTMLResponse)
+def delete_exercise(
     *,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    workout_id: int
+    exercise_id: int
 ):
-    workout = session.get(Workout, workout_id)
-    if not workout or workout.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Workout not found")
-    session.delete(workout)
+    exercise = session.get(Exercise, exercise_id)
+    if not exercise or exercise.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    session.delete(exercise)
     session.commit()
-    return get_workouts(session=session, current_user=current_user, offset=0, limit=5)
+    return get_exercises(session=session, current_user=current_user, offset=0, limit=5)
 
-@app.get('/workouts', response_class=HTMLResponse)
-def get_workouts(*,
+@app.get('/exercises', response_class=HTMLResponse)
+def get_exercises(*,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=5, ge=1, le=20)
 ):
-    workouts = session.exec(
-        select(Workout)
-        .where(Workout.user_id == current_user.id)
-        .order_by(Workout.created_at.desc())
+    exercises = session.exec(
+        select(Exercise)
+        .where(Exercise.user_id == current_user.id)
+        .order_by(Exercise.created_at.desc())
         .offset(offset)
         .limit(limit + 1) # Fetch one extra row to determine if a next page exists
     ).all()
-    table_rows = [get_workout_row_snippet(workout) for workout in workouts[:limit]]
+    table_rows = [get_exercise_row_snippet(exercise) for exercise in exercises[:limit]]
 
     def make_button(label:str, offset: int, limit: int) -> str:
         return f"""
-            <button hx-get="/workouts?offset={offset}&limit={limit}"
-                    hx-target="#previous-workouts"
+            <button hx-get="/exercises?offset={offset}&limit={limit}"
+                    hx-target="#previous-exercises"
                     hx-swap="outerHTML">{label}</button>
         """
     previous_button = make_button("Previous", max(offset - limit, 0), limit) if offset > 0 else ""
-    next_button = make_button("Next", offset + limit, limit) if len(workouts) > limit else ""
+    next_button = make_button("Next", offset + limit, limit) if len(exercises) > limit else ""
 
     return f"""
-    <div id="previous-workouts">
+    <div id="previous-exercises">
         <div style="overflow-x: auto">
         <table>
             <thead>
                 <tr>
                     <th scope="col">Date</th>
-                    <th scope="col">Ex.</th>
+                    <th scope="col">Movement</th>
                     <th scope="col">Sets</th>
                     <th scope="col">Reps</th>
                     <th scope="col">Weight</th>
@@ -245,16 +245,16 @@ def get_workouts(*,
     </div>
     """
 
-@app.get('/exercises', response_class=HTMLResponse)
-def get_exercises(*, session: Session = Depends(get_session)):
-    exercises = session.exec(select(Exercise)).all()
+@app.get('/movements', response_class=HTMLResponse)
+def get_movements(*, session: Session = Depends(get_session)):
+    movements = session.exec(select(Movement)).all()
 
-    if not exercises:
-        return '<option value="">No exercises available</option>'
+    if not movements:
+        return '<option value="">No movements available</option>'
 
-    options = ['<option value="">Select an exercise</option>']
-    for exercise in exercises:
-        options.append(f'<option value="{exercise.name}">{exercise.name}</option>')
+    options = ['<option value="">Select a movement</option>']
+    for movement in movements:
+        options.append(f'<option value="{movement.name}">{movement.name}</option>')
 
     return "\n".join(options)
 
@@ -267,41 +267,41 @@ def get_recommendation(*,
     rpe: float = Form(..., ge=MIN_RPE, le=MAX_RPE)
 ):
     # Bad days at the gym when we feel weaker than usual are common.
-    # To be robust against that and estimulate the user, we use their best
+    # To be robust against that and stimulate the user, we use their best
     # performance over the past 4 days.
     LOOKBACK_WINDOW = 4
-    workouts = session.exec(
-        select(Workout)
-        .where(Workout.exercise_name == exercise_name, Workout.user_id == current_user.id)
-        .order_by(Workout.created_at.desc())
+    exercises = session.exec(
+        select(Exercise)
+        .where(Exercise.exercise_name == exercise_name, Exercise.user_id == current_user.id)
+        .order_by(Exercise.created_at.desc())
         .limit(LOOKBACK_WINDOW)
     ).all()
-    if not workouts:
+    if not exercises:
         return """
         <div class="failure-message">
-        <p>No previous data for this exercise. Please log a workout first to get a recommendation.</p>
+        <p>No previous data for this movement. Please log an exercise first to get a recommendation.</p>
         </div>
         """
-    onerepmax = max(get_onerepmax(workout) for workout in workouts)
-    
-    exercise = session.exec(select(Exercise).where(Exercise.name == exercise_name)).first()
-    if not exercise:
+    onerepmax = max(get_onerepmax(exercise) for exercise in exercises)
+
+    movement = session.exec(select(Movement).where(Movement.name == exercise_name)).first()
+    if not movement:
         return """
         <div class="failure-message">
-        <p>Exercise not found</p>
+        <p>Movement not found</p>
         </div>
         """
-    bodyweight = session.get(User, current_user.id).bodyweight if exercise.dip_belt else None
+    bodyweight = session.get(User, current_user.id).bodyweight if movement.dip_belt else None
 
     weight = get_target_weight(onerepmax, reps, bodyweight, rpe)
     return f"""
-    <form hx-post="/workouts/"
+    <form hx-post="/exercises/"
           hx-swap="none"
-          hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Workout logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }}">
+          hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }}">
         <table>
             <thead>
                 <tr>
-                    <th>Exercise</th>
+                    <th>Movement</th>
                     <th>Sets</th>
                     <th>Reps</th>
                     <th>Weight (kg)</th>
@@ -340,27 +340,27 @@ def api_sync(*,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    exercises = session.exec(select(Exercise)).all()
-    workouts = session.exec(
-        select(Workout)
-        .where(Workout.user_id == current_user.id)
-        .order_by(Workout.created_at.desc())
+    movements = session.exec(select(Movement)).all()
+    exercises = session.exec(
+        select(Exercise)
+        .where(Exercise.user_id == current_user.id)
+        .order_by(Exercise.created_at.desc())
     ).all()
     user = session.get(User, current_user.id)
     return {
-        "exercises": [{"name": e.name, "dip_belt": e.dip_belt} for e in exercises],
-        "workouts": [
+        "movements": [{"name": m.name, "dip_belt": m.dip_belt} for m in movements],
+        "exercises": [
             {
-                "id": w.id,
-                "exercise_name": w.exercise_name,
-                "sets": w.sets,
-                "reps": w.reps,
-                "weight": w.weight,
-                "rpe": w.rpe,
-                "bodyweight": w.bodyweight,
-                "created_at": w.created_at.isoformat(),
+                "id": e.id,
+                "exercise_name": e.exercise_name,
+                "sets": e.sets,
+                "reps": e.reps,
+                "weight": e.weight,
+                "rpe": e.rpe,
+                "bodyweight": e.bodyweight,
+                "created_at": e.created_at.isoformat(),
             }
-            for w in workouts
+            for e in exercises
         ],
         "bodyweight": user.bodyweight,
     }
@@ -378,9 +378,9 @@ async def api_sync_push(*,
         action_type = action['type']
         data = action['data']
 
-        if action_type == 'create_workout':
-            exercise = session.get(Exercise, data['exercise_name'])
-            workout = Workout(
+        if action_type == 'create_exercise':
+            movement = session.get(Movement, data['exercise_name'])
+            exercise = Exercise(
                 exercise_name=data['exercise_name'],
                 sets=int(data.get('sets', DEFAULT_SETS)),
                 reps=int(data['reps']),
@@ -388,53 +388,53 @@ async def api_sync_push(*,
                 rpe=float(data['rpe']),
                 user_id=current_user.id,
             )
-            if exercise and exercise.dip_belt:
-                workout.bodyweight = session.get(User, current_user.id).bodyweight
+            if movement and movement.dip_belt:
+                exercise.bodyweight = session.get(User, current_user.id).bodyweight
             if 'created_at' in action:
-                workout.created_at = datetime.fromisoformat(action['created_at'])
-            session.add(workout)
+                exercise.created_at = datetime.fromisoformat(action['created_at'])
+            session.add(exercise)
 
         elif action_type == 'update_bodyweight':
             user = session.get(User, current_user.id)
             user.bodyweight = float(data['bodyweight'])
             session.add(user)
 
-        elif action_type == 'create_exercise':
-            existing = session.exec(select(Exercise).where(Exercise.name == data['name'])).first()
+        elif action_type == 'create_movement':
+            existing = session.exec(select(Movement).where(Movement.name == data['name'])).first()
             if not existing:
-                exercise = Exercise(name=data['name'], dip_belt=bool(data.get('dip_belt', False)))
-                session.add(exercise)
+                movement = Movement(name=data['name'], dip_belt=bool(data.get('dip_belt', False)))
+                session.add(movement)
 
     session.commit()
     return {"status": "ok", "replayed": len(actions)}
 
-@app.post('/exercises', response_class=HTMLResponse)
-def create_exercise(*,
+@app.post('/movements', response_class=HTMLResponse)
+def create_movement(*,
     response: Response,
     session: Session = Depends(get_session),
     _: User = Depends(get_current_user),
     name: str = Form(...),
     dip_belt: bool = Form(default=False)
 ):
-    exercise = session.get(Exercise, name)
-    if exercise:
+    movement = session.get(Movement, name)
+    if movement:
         return f"""
         <div class="failure-message">
-        <p>Exercise {name} already exists</p>
+        <p>Movement {name} already exists</p>
         </div>
         """
-    
-    exercise = Exercise(
+
+    movement = Movement(
         name=name,
         dip_belt=dip_belt
     )
-    session.add(exercise)
+    session.add(movement)
     session.commit()
 
-    response.headers["HX-Trigger"] = "exercise-created"
+    response.headers["HX-Trigger"] = "movement-created"
     return f"""
     <div class="success-message">
-    <p>Exercise {name} successfully created</p>
+    <p>Movement {name} successfully created</p>
     </div>
     """
 
@@ -445,26 +445,26 @@ def get_progress(*,
     exercise_name: str = Query(...),
     days: int = Query(gt=0, le=365)
 ):
-    exercise = session.get(Exercise, exercise_name)
-    if not exercise:
-        raise HTTPException(status_code=404, detail=f"Exercise \'{exercise_name}\' not found")
-    
+    movement = session.get(Movement, exercise_name)
+    if not movement:
+        raise HTTPException(status_code=404, detail=f"Movement \'{exercise_name}\' not found")
+
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
-    workouts = session.exec(
-        select(Workout)
-        .where(Workout.user_id == current_user.id)
-        .where(Workout.exercise_name == exercise_name)
-        .where(Workout.created_at >= start_date)
-        .order_by(Workout.created_at)
+    exercises = session.exec(
+        select(Exercise)
+        .where(Exercise.user_id == current_user.id)
+        .where(Exercise.exercise_name == exercise_name)
+        .where(Exercise.created_at >= start_date)
+        .order_by(Exercise.created_at)
     ).all()
 
     return {
         'exercise': exercise_name,
         'onerepmax': [
             {
-                'date': workout.created_at.isoformat(),
-                'value': get_onerepmax(workout),
+                'date': exercise.created_at.isoformat(),
+                'value': get_onerepmax(exercise),
             }
-            for workout in workouts
+            for exercise in exercises
         ]
     }

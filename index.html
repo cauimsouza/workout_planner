@@ -47,16 +47,16 @@
             margin: 0;
         }
 
-        /* Previous Workouts table */
-        #previous-workouts:has(tbody:empty) table {
+        /* Previous Exercises table */
+        #previous-exercises:has(tbody:empty) table {
             display: none;
         }
-        #previous-workouts:has(tbody:empty) {
+        #previous-exercises:has(tbody:empty) {
             text-align: center;
             color: var(--pico-muted-color);
         }
-        #previous-workouts:has(tbody:empty)::after {
-            content: "No workouts logged yet. Start by adding your first workout!";
+        #previous-exercises:has(tbody:empty)::after {
+            content: "No exercises logged yet. Start by adding your first exercise!";
         }
 
         .delete-btn {
@@ -114,17 +114,17 @@
             <header>
                 <h2>Weight Recommendation</h2>
             </header>
-            
+
             <form id="recommendation-form" method="post">
                 <div class="form-row">
                     <label>
-                        Exercise
+                        Movement
                         <select name="exercise_name" required
-                                hx-get="/exercises"
-                                hx-trigger="load, exercise-created from:body"
+                                hx-get="/movements"
+                                hx-trigger="load, movement-created from:body"
                                 hx-target="this"
                                 hx-swap="innerHTML">
-                            <option value="">Loading exercises...</option>
+                            <option value="">Loading movements...</option>
                         </select>
                     </label>
                     <label>
@@ -149,29 +149,29 @@
                 <!-- Recommendations will appear here -->
             </div>
         </article>
-        
-        <!-- Create Workout Form -->
-        <article id="workout-form">
+
+        <!-- Log Exercise Form -->
+        <article id="exercise-form">
             <header>
-                <h2>Log Workout</h2>
+                <h2>Log Exercise</h2>
             </header>
             <div id="success-message"></div>
-            <form hx-post="/workouts/" 
+            <form hx-post="/exercises/"
                   hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/workouts/')) { this.reset(); document.getElementById('workout_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>✅ Workout logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
-                
+                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/exercises/')) { this.reset(); document.getElementById('exercise_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>Exercise logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); }">
+
                 <div class="form-row">
                     <label>
                         Date
-                        <input type="date" id="workout_date" name="workout_date">
+                        <input type="date" id="exercise_date" name="exercise_date">
                     </label>
                     <label>
-                        Exercise
+                        Movement
                         <select id="exercise_name" name="exercise_name" required
-                                hx-get="/exercises"
-                                hx-trigger="load, exercise-created from:body"
+                                hx-get="/movements"
+                                hx-trigger="load, movement-created from:body"
                                 hx-swap="innerHTML">
-                            <option value="">Loading exercises...</option>
+                            <option value="">Loading movements...</option>
                         </select>
                     </label>
                 </div>
@@ -195,22 +195,22 @@
                     </label>
                 </div>
 
-                <button type="submit">Log Workout</button>
+                <button type="submit">Log Exercise</button>
             </form>
         </article>
 
-        <!-- Previous Workouts -->
+        <!-- Previous Exercises -->
         <article>
             <header>
-                <h2>Previous Workouts</h2>
+                <h2>Previous Exercises</h2>
             </header>
-            <div id="previous-workouts" 
-                 hx-get="/workouts" 
+            <div id="previous-exercises"
+                 hx-get="/exercises"
                  hx-trigger="load"
                  hx-swap="outerHTML">
                 <div class="empty-state">
                     <div class="empty-state-icon">⏳</div>
-                    <p>Loading workouts...</p>
+                    <p>Loading exercises...</p>
                 </div>
             </div>
         </article>
@@ -220,8 +220,8 @@
             <header>
                 <h2>Update Bodyweight</h2>
             </header>
-            <form hx-put="/bodyweight" 
-                  hx-target="#bodyweight-display" 
+            <form hx-put="/bodyweight"
+                  hx-target="#bodyweight-display"
                   hx-swap="outerHTML">
                   <div class="form-row"></div>
                     <label>
@@ -249,12 +249,12 @@
             </header>
             <div class="form-row">
                 <label>
-                    Exercise
+                    Movement
                     <select id="progress-exercise"
-                        hx-get="/exercises"
-                        hx-trigger="load, exercise-created from:body"
+                        hx-get="/movements"
+                        hx-trigger="load, movement-created from:body"
                         hx-swap="innerHTML">
-                        <option value="">Loading exercises...</option>
+                        <option value="">Loading movements...</option>
                     </select>
                 </label>
                 <label>
@@ -267,19 +267,19 @@
                 </label>
             </div>
             <button onclick="loadProgress()">Show Progress</button>
-            <div id="progress-no-data" class="failure-message" hidden>No data for this exercise in the selected period.</div>
+            <div id="progress-no-data" class="failure-message" hidden>No data for this movement in the selected period.</div>
             <canvas id="progress-chart" hidden></canvas>
         </article>
 
-        <!-- Create Exercise -->
+        <!-- Create Movement -->
         <article>
             <header>
-                <h2>Create Exercise</h2>
+                <h2>Create Movement</h2>
             </header>
-            <form hx-post="/exercises"
-                  hx-target="#create-exercise-result"
+            <form hx-post="/movements"
+                  hx-target="#create-movement-result"
                   hx-swap="innerHTML"
-                  hx-on:exercise-created="this.reset(); setTimeout(() => document.getElementById('create-exercise-result').innerHTML = '', 3000);">
+                  hx-on:movement-created="this.reset(); setTimeout(() => document.getElementById('create-movement-result').innerHTML = '', 3000);">
 
                 <div class="form-row">
                     <label>
@@ -293,12 +293,12 @@
                 </div>
                 <button type="submit">Create</button>
             </form>
-            <div id="create-exercise-result"></div>
+            <div id="create-movement-result"></div>
         </article>
     </main>
 
     <script>
-        document.getElementById('workout_date').valueAsDate = new Date();
+        document.getElementById('exercise_date').valueAsDate = new Date();
     </script>
 
     <!-- JS script for handling the progress chart -->

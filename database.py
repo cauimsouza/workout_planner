@@ -1,4 +1,4 @@
-from models import Exercise, User
+from models import Movement, User
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -8,21 +8,21 @@ engine = create_engine(db_url, echo=True, connect_args={'check_same_thread': Fal
 
 def seed_db():
     with Session(engine) as session:
-        existing = session.exec(select(Exercise)).first()
+        existing = session.exec(select(Movement)).first()
         if existing:
             print('Database already seeded')
             return
-        
-        exercises = [
-            Exercise(name='Pull-up', dip_belt=True),
-            Exercise(name='Dip', dip_belt=True),
-            Exercise(name='Bench press', dip_belt=False),
-            Exercise(name='Squat', dip_belt=False),
+
+        movements = [
+            Movement(name='Pull-up', dip_belt=True),
+            Movement(name='Dip', dip_belt=True),
+            Movement(name='Bench press', dip_belt=False),
+            Movement(name='Squat', dip_belt=False),
         ]
-        session.add_all(exercises)
+        session.add_all(movements)
 
         session.commit()
-        print(f'Added {len(exercises)} exercises')
+        print(f'Added {len(movements)} movements')
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

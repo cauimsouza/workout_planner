@@ -77,7 +77,7 @@ self.addEventListener('fetch', (event) => {
     }
 
     // HTMX data endpoints: network-first, offline fallback from IndexedDB
-    const offlineRoutes = ['/exercises', '/workouts', '/bodyweight'];
+    const offlineRoutes = ['/movements', '/exercises', '/bodyweight'];
     if (offlineRoutes.some((route) => url.pathname === route)) {
         event.respondWith(
             fetch(event.request)
@@ -94,11 +94,11 @@ function openDB() {
         const request = indexedDB.open('workout-tracker', 2);
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
-            if (!db.objectStoreNames.contains('exercises')) {
-                db.createObjectStore('exercises', { keyPath: 'name' });
+            if (!db.objectStoreNames.contains('movements')) {
+                db.createObjectStore('movements', { keyPath: 'name' });
             }
-            if (!db.objectStoreNames.contains('workouts')) {
-                const store = db.createObjectStore('workouts', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('exercises')) {
+                const store = db.createObjectStore('exercises', { keyPath: 'id' });
                 store.createIndex('by_exercise', 'exercise_name');
                 store.createIndex('by_created_at', 'created_at');
             }
@@ -162,13 +162,13 @@ async function generateOfflineResponse(url) {
     try {
         const db = await openDB();
 
-        if (url.pathname === '/exercises') {
-            return generateExercisesResponse(db);
+        if (url.pathname === '/movements') {
+            return generateMovementsResponse(db);
         }
-        if (url.pathname === '/workouts') {
+        if (url.pathname === '/exercises') {
             const offset = parseInt(url.searchParams.get('offset') || '0');
             const limit = parseInt(url.searchParams.get('limit') || '5');
-            return generateWorkoutsResponse(db, offset, limit);
+            return generateExercisesResponse(db, offset, limit);
         }
         if (url.pathname === '/bodyweight') {
             return generateBodyweightResponse(db);
@@ -178,52 +178,52 @@ async function generateOfflineResponse(url) {
     }
 }
 
-async function generateExercisesResponse(db) {
-    const exercises = await getAll(db, 'exercises');
-    if (!exercises.length) {
-        return htmlResponse('<option value="">No exercises available</option>');
+async function generateMovementsResponse(db) {
+    const movements = await getAll(db, 'movements');
+    if (!movements.length) {
+        return htmlResponse('<option value="">No movements available</option>');
     }
-    const options = ['<option value="">Select an exercise</option>'];
-    for (const ex of exercises) {
-        options.push(`<option value="${ex.name}">${ex.name}</option>`);
+    const options = ['<option value="">Select a movement</option>'];
+    for (const m of movements) {
+        options.push(`<option value="${m.name}">${m.name}</option>`);
     }
     return htmlResponse(options.join('\n'));
 }
 
-async function generateWorkoutsResponse(db, offset, limit) {
-    const workouts = await getAll(db, 'workouts');
+async function generateExercisesResponse(db, offset, limit) {
+    const exercises = await getAll(db, 'exercises');
     // Sort descending by created_at
-    workouts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    exercises.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    const page = workouts.slice(offset, offset + limit);
-    const hasNext = workouts.length > offset + limit;
+    const page = exercises.slice(offset, offset + limit);
+    const hasNext = exercises.length > offset + limit;
     const hasPrev = offset > 0;
 
-    const rows = page.map((w) => `
+    const rows = page.map((e) => `
         <tr>
-            <th scope="row">${formatDate(w.created_at)}</th>
-            <td>${w.exercise_name}</td>
-            <td>${w.reps}</td>
-            <td>${formatNumber(w.weight)}</td>
-            <td>${formatNumber(w.rpe)}</td>
+            <th scope="row">${formatDate(e.created_at)}</th>
+            <td>${e.exercise_name}</td>
+            <td>${e.reps}</td>
+            <td>${formatNumber(e.weight)}</td>
+            <td>${formatNumber(e.rpe)}</td>
         </tr>
     `).join('');
 
     const prevBtn = hasPrev
-        ? `<button hx-get="/workouts?offset=${Math.max(offset - limit, 0)}&limit=${limit}" hx-target="#previous-workouts" hx-swap="outerHTML">Previous</button>`
+        ? `<button hx-get="/exercises?offset=${Math.max(offset - limit, 0)}&limit=${limit}" hx-target="#previous-exercises" hx-swap="outerHTML">Previous</button>`
         : '';
     const nextBtn = hasNext
-        ? `<button hx-get="/workouts?offset=${offset + limit}&limit=${limit}" hx-target="#previous-workouts" hx-swap="outerHTML">Next</button>`
+        ? `<button hx-get="/exercises?offset=${offset + limit}&limit=${limit}" hx-target="#previous-exercises" hx-swap="outerHTML">Next</button>`
         : '';
 
     return htmlResponse(`
-        <div id="previous-workouts">
+        <div id="previous-exercises">
             <div style="overflow-x: auto">
             <table>
                 <thead>
                     <tr>
                         <th scope="col">Date</th>
-                        <th scope="col">Ex.</th>
+                        <th scope="col">Movement</th>
                         <th scope="col">Reps</th>
                         <th scope="col">Weight</th>
                         <th scope="col">RPE</th>
@@ -292,14 +292,14 @@ async function handleOfflineWrite(url, method, body) {
         const db = await openDB();
         const form = parseFormData(body);
 
-        if (url.pathname === '/workouts/' && method === 'POST') {
-            return handleOfflineCreateWorkout(db, form);
+        if (url.pathname === '/exercises/' && method === 'POST') {
+            return handleOfflineCreateExercise(db, form);
         }
         if (url.pathname === '/bodyweight' && method === 'PUT') {
             return handleOfflineUpdateBodyweight(db, form);
         }
-        if (url.pathname === '/exercises' && method === 'POST') {
-            return handleOfflineCreateExercise(db, form);
+        if (url.pathname === '/movements' && method === 'POST') {
+            return handleOfflineCreateMovement(db, form);
         }
         if (url.pathname === '/recommendations' && method === 'POST') {
             return handleOfflineRecommendation(db, form);
@@ -311,33 +311,33 @@ async function handleOfflineWrite(url, method, body) {
     }
 }
 
-async function handleOfflineCreateWorkout(db, form) {
-    const exercise = await getByKey(db, 'exercises', form.exercise_name);
+async function handleOfflineCreateExercise(db, form) {
+    const movement = await getByKey(db, 'movements', form.exercise_name);
     const bwRecord = await getByKey(db, 'user', 'bodyweight');
 
-    const workout = {
+    const exercise = {
         id: 'offline_' + Date.now(),
         exercise_name: form.exercise_name,
         reps: parseInt(form.reps),
         weight: parseFloat(form.weight),
         rpe: parseFloat(form.rpe),
-        bodyweight: (exercise && exercise.dip_belt && bwRecord) ? bwRecord.value : null,
+        bodyweight: (movement && movement.dip_belt && bwRecord) ? bwRecord.value : null,
         created_at: new Date().toISOString(),
     };
 
-    await putItem(db, 'workouts', workout);
+    await putItem(db, 'exercises', exercise);
     await queuePending(db, {
-        type: 'create_workout',
+        type: 'create_exercise',
         data: {
-            exercise_name: workout.exercise_name,
-            reps: workout.reps,
-            weight: workout.weight,
-            rpe: workout.rpe,
+            exercise_name: exercise.exercise_name,
+            reps: exercise.reps,
+            weight: exercise.weight,
+            rpe: exercise.rpe,
         },
-        created_at: workout.created_at,
+        created_at: exercise.created_at,
     });
 
-    return htmlResponse('<div><p>Workout created</p></div>');
+    return htmlResponse('<div><p>Exercise logged</p></div>');
 }
 
 async function handleOfflineUpdateBodyweight(db, form) {
@@ -358,36 +358,36 @@ async function handleOfflineUpdateBodyweight(db, form) {
     `);
 }
 
-async function handleOfflineCreateExercise(db, form) {
-    const existing = await getByKey(db, 'exercises', form.name);
+async function handleOfflineCreateMovement(db, form) {
+    const existing = await getByKey(db, 'movements', form.name);
     if (existing) {
         return htmlResponse(`
             <div class="failure-message">
-            <p>Exercise ${form.name} already exists</p>
+            <p>Movement ${form.name} already exists</p>
             </div>
         `);
     }
 
-    const exercise = {
+    const movement = {
         name: form.name,
         dip_belt: form.dip_belt === 'on' || form.dip_belt === 'true',
     };
-    await putItem(db, 'exercises', exercise);
+    await putItem(db, 'movements', movement);
     await queuePending(db, {
-        type: 'create_exercise',
-        data: exercise,
+        type: 'create_movement',
+        data: movement,
         created_at: new Date().toISOString(),
     });
 
-    // Return response with HX-Trigger header so exercise dropdowns refresh
+    // Return response with HX-Trigger header so movement dropdowns refresh
     return new Response(`
         <div class="success-message">
-        <p>Exercise ${form.name} successfully created</p>
+        <p>Movement ${form.name} successfully created</p>
         </div>
     `, {
         headers: {
             'Content-Type': 'text/html; charset=utf-8',
-            'HX-Trigger': 'exercise-created',
+            'HX-Trigger': 'movement-created',
         },
     });
 }
@@ -397,34 +397,34 @@ async function handleOfflineRecommendation(db, form) {
     const targetReps = parseInt(form.reps);
     const targetRpe = parseFloat(form.rpe);
 
-    const exercise = await getByKey(db, 'exercises', exerciseName);
-    if (!exercise) {
+    const movement = await getByKey(db, 'movements', exerciseName);
+    if (!movement) {
         return htmlResponse(`
             <div class="failure-message">
-            <p>Exercise not found</p>
+            <p>Movement not found</p>
             </div>
         `);
     }
 
-    // Find last workout for this exercise
-    const allWorkouts = await getAll(db, 'workouts');
-    const exerciseWorkouts = allWorkouts
-        .filter((w) => w.exercise_name === exerciseName)
+    // Find last exercise for this movement
+    const allExercises = await getAll(db, 'exercises');
+    const matchingExercises = allExercises
+        .filter((e) => e.exercise_name === exerciseName)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    if (!exerciseWorkouts.length) {
+    if (!matchingExercises.length) {
         return htmlResponse(`
             <div class="failure-message">
-            <p>No previous data for this exercise. Please log a workout first to get a recommendation.</p>
+            <p>No previous data for this movement. Please log an exercise first to get a recommendation.</p>
             </div>
         `);
     }
 
-    const last = exerciseWorkouts[0];
+    const last = matchingExercises[0];
     let bodyweight = 0;
     let lastBodyweight = 0;
 
-    if (exercise.dip_belt) {
+    if (movement.dip_belt) {
         const bwRecord = await getByKey(db, 'user', 'bodyweight');
         bodyweight = bwRecord ? bwRecord.value : 70;
         lastBodyweight = last.bodyweight ? last.bodyweight : bodyweight;
@@ -440,13 +440,13 @@ async function handleOfflineRecommendation(db, form) {
     const weightRounded = Math.round(weight / 1.25) * 1.25;
 
     return htmlResponse(`
-        <form hx-post="/workouts/"
+        <form hx-post="/exercises/"
               hx-swap="none"
-              hx-on::after-request="if(event.detail.successful) { var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Workout logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }">
+              hx-on::after-request="if(event.detail.successful) { var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }">
             <table>
                 <thead>
                     <tr>
-                        <th>Exercise</th>
+                        <th>Movement</th>
                         <th>Reps</th>
                         <th>Weight (kg)</th>
                         <th>RPE</th>

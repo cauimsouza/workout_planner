@@ -1,27 +1,27 @@
 from datetime import datetime, timezone
 from sqlmodel import Field, SQLModel
 
-class Exercise(SQLModel, table=True):
+class Movement(SQLModel, table=True):
     name: str = Field(primary_key=True)
     dip_belt: bool = Field(default=False)
 
-class WorkoutBase(SQLModel):
-    exercise_name: str = Field(index=True, foreign_key='exercise.name')
+class ExerciseBase(SQLModel):
+    exercise_name: str = Field(index=True, foreign_key='movement.name')
     sets: int = Field(default=3)
     reps: int
     weight: float
     rpe: float
 
-class WorkoutCreate(WorkoutBase):
+class ExerciseCreate(ExerciseBase):
     pass
 
-class Workout(WorkoutBase, table=True):
+class Exercise(ExerciseBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key='user.id')
-    bodyweight: float | None # Only set for exercises with dip_belt=True
+    bodyweight: float | None # Only set for movements with dip_belt=True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class WorkoutPublic(WorkoutBase):
+class ExercisePublic(ExerciseBase):
     id: int
     created_at: datetime
 
