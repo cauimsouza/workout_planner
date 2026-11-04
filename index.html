@@ -2,87 +2,870 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f5fa" media="(prefers-color-scheme: light)" id="theme-color-light">
+    <meta name="theme-color" content="#0e1016" media="(prefers-color-scheme: dark)" id="theme-color-dark">
     <title>Workout Tracker</title>
+    <script>
+        // Apply the theme chosen in Profile before anything is drawn, to avoid a flash of the wrong one.
+        (function () {
+            try {
+                var theme = localStorage.getItem('theme');
+                if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+            } catch (e) { /* Storage unavailable: follow the device. */ }
+        })();
+    </script>
     <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+    <link rel="preload" href="/static/fonts/inter-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <!-- iPhone "Add to Home Screen": full-screen app with its own icon and name. -->
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Workouts">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/offline.js" defer></script>
+    <script src="/static/workout.js" defer></script>
+    <script src="/static/program.js" defer></script>
     <style>
-        /* Custom color scheme */
+        /* ---------- Font ---------- */
+        /* Inter (SIL Open Font License, static/fonts/Inter-LICENSE.txt), bundled so it works offline. */
+        @font-face {
+            font-family: "Inter";
+            src: url("/static/fonts/inter-latin-variable.woff2") format("woff2");
+            font-weight: 100 900;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        /* ---------- Theme ---------- */
         :root {
-            --pico-primary: #667eea;
-            --pico-primary-hover: #764ba2;
+            --accent: #5b5bd6;
+            --accent-strong: #4a4ac4;
+            --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+            --ok: #16794a;
+            --warn: #8a5a00;
+            --err: #b42318;
+            --surface: #ffffff;
+            --surface-2: #f4f5fa;
+            --line: #e6e7ef;
+            --muted: #6b6f80;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px rgba(16, 24, 40, 0.06);
+            --tabbar-height: 4.25rem;
+        }
+        /* Dark palette: when chosen in Profile (data-theme="dark"), or when following
+           the device (no data-theme) and the device is dark. Pico follows the same attribute. */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --accent: #8b8cf6;
+                --accent-strong: #a3a4fa;
+                --ok: #6ee7a8;
+                --warn: #f5c451;
+                --err: #ff8a80;
+                --surface: #171a23;
+                --surface-2: #0e1016;
+                --line: #262a36;
+                --muted: #9599aa;
+                --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+            }
+        }
+        :root[data-theme="dark"] {
+            --accent: #8b8cf6;
+            --accent-strong: #a3a4fa;
+            --ok: #6ee7a8;
+            --warn: #f5c451;
+            --err: #ff8a80;
+            --surface: #171a23;
+            --surface-2: #0e1016;
+            --line: #262a36;
+            --muted: #9599aa;
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+        /* Pico defines its theme on :root with more specific selectors, so override on body. */
+        body {
+            --pico-font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: var(--pico-font-family); /* Pico applies its font on :root, which doesn't see this override */
+            font-feature-settings: "cv11", "ss01"; /* Inter's single-storey a and open digits */
+            -webkit-font-smoothing: antialiased;
+            --pico-border-radius: 0.75rem;
+            --pico-background-color: var(--surface-2);
+            --pico-card-background-color: var(--surface);
+            --pico-card-sectioning-background-color: var(--surface);
+            --pico-card-box-shadow: var(--shadow);
+            --pico-muted-color: var(--muted);
+            --pico-muted-border-color: var(--line);
+            --pico-primary: var(--accent);
+            --pico-primary-background: var(--accent);
+            --pico-primary-border: var(--accent);
+            --pico-primary-hover: var(--accent-strong);
+            --pico-primary-hover-background: var(--accent-strong);
+            --pico-primary-hover-border: var(--accent-strong);
+            --pico-primary-focus: color-mix(in srgb, var(--accent) 35%, transparent);
+            --pico-primary-underline: color-mix(in srgb, var(--accent) 50%, transparent);
+            --pico-form-element-focus-color: var(--accent);
+            --pico-form-element-spacing-vertical: 0.65rem;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) body { --pico-primary-inverse: #0e1016; }
+        }
+        :root[data-theme="dark"] body { --pico-primary-inverse: #0e1016; }
+
+        html, body {
+            background: var(--surface-2);
+        }
+        html {
+            -webkit-tap-highlight-color: transparent; /* No grey flash on tap (iPhone) */
+        }
+        h1, h2, h3, .wz-title, .wz-movement, .tile-value {
+            letter-spacing: -0.02em;
+        }
+        input, .tile-value, .chip, .week-num, .wz-count, td {
+            font-variant-numeric: tabular-nums;
+        }
+        /* Pressed feedback for touch screens, which have no hover. */
+        .day-option:active, .week-seg:active, .segmented button:active {
+            transform: scale(0.97);
+        }
+        .link-list a:active {
+            background: var(--surface-2);
         }
 
-        .success-message, .failure-message {
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: var(--pico-border-radius);
+        /* ---------- App shell ---------- */
+        .app-bar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            padding: calc(env(safe-area-inset-top, 0px) + 0.75rem) 1rem 0.75rem;
+            background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
         }
-
-        .success-message {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        .app-bar-inner {
+            max-width: 40rem;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
         }
-
-        .failure-message {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        .app-bar img {
+            width: 1.75rem;
+            height: 1.75rem;
+            border-radius: 0.5rem;
         }
-
-        /* Form row for side-by-side inputs */
-        .form-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
+        .app-bar h1 {
+            font-size: 1.15rem;
+            margin: 0;
+            letter-spacing: -0.01em;
         }
-
-        /* Recommendations table */
-        #recommendation-results button {
-            padding: 0.25rem 0.5rem;
+        main.app {
+            max-width: 40rem;
+            margin: 0 auto;
+            padding: 0.25rem 1rem calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px) + 1.5rem);
+        }
+        .section-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 1.5rem 0.25rem 0.6rem;
+        }
+        .section-title:first-child {
+            margin-top: 0.5rem;
+        }
+        main article {
+            margin: 0 0 1rem;
+            border: none;
+            border-radius: 1rem;
+        }
+        main article > header {
+            background: transparent;
+            border-bottom: 1px solid var(--line);
+        }
+        main article > header h2 {
+            font-size: 1.05rem;
             margin: 0;
         }
 
-        /* Previous Exercises table */
+        .profile-button {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: 50%;
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--line);
+        }
+        .profile-button svg {
+            width: 1.2rem;
+            height: 1.2rem;
+        }
+        .profile-button[aria-current="page"] {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+        .back-link {
+            display: inline-block;
+            margin: 0.25rem 0.25rem 0.75rem;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .page-intro {
+            font-size: 0.9rem;
+            margin: 0 0.25rem 0.75rem;
+        }
+        .link-list {
+            display: grid;
+            grid-template-columns: 1fr; /* Pico gives <nav> justify-content: space-between, which would shrink the column */
+            border-radius: 1rem;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .link-list a {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.85rem 1rem;
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px solid var(--line);
+        }
+        .link-list a:last-child {
+            border-bottom: none;
+        }
+        .link-list a:hover {
+            background: var(--surface-2);
+        }
+        .link-list a > span:last-child {
+            color: var(--muted);
+            font-size: 1.4rem;
+            line-height: 1;
+        }
+        .link-list strong {
+            display: block;
+            font-weight: 600;
+        }
+        .link-list small {
+            color: var(--muted);
+        }
+
+        .tab-bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 20;
+            display: flex;
+            justify-content: center;
+            padding: 0.4rem 0.5rem calc(env(safe-area-inset-bottom, 0px) + 0.4rem);
+            background: color-mix(in srgb, var(--surface) 90%, transparent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-top: 1px solid var(--line);
+        }
+        .tab-bar-inner {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            width: 100%;
+            max-width: 26rem;
+        }
+        .tab-bar a {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.15rem;
+            padding: 0.35rem 0;
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--muted);
+            text-decoration: none;
+            border-radius: 0.75rem;
+        }
+        .tab-bar a svg {
+            width: 1.4rem;
+            height: 1.4rem;
+        }
+        .tab-bar a[aria-current="page"] {
+            color: var(--accent);
+        }
+        .tab-bar a[aria-current="page"] svg {
+            background: var(--accent-soft);
+            border-radius: 1rem;
+            padding: 0.1rem 0.9rem;
+            box-sizing: content-box;
+        }
+
+        #offline-banner {
+            background: color-mix(in srgb, var(--warn) 15%, var(--surface));
+            color: var(--warn);
+            text-align: center;
+            padding: 0.4rem;
+            font-size: 0.85rem;
+        }
+
+        /* ---------- Shared bits ---------- */
+        .success-message, .failure-message {
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: var(--pico-border-radius);
+            font-size: 0.95rem;
+        }
+        .success-message p, .failure-message p {
+            margin: 0;
+        }
+        .success-message {
+            background: color-mix(in srgb, var(--ok) 12%, transparent);
+            color: var(--ok);
+        }
+        .failure-message {
+            background: color-mix(in srgb, var(--err) 12%, transparent);
+            color: var(--err);
+        }
+        .muted {
+            color: var(--muted);
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+            gap: 0 1rem;
+        }
+        .button-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .button-row > button {
+            flex: 1;
+        }
+        .link-button {
+            background: none;
+            border: none;
+            padding: 0;
+            width: auto;
+            color: var(--muted);
+            text-decoration: underline;
+            font-size: 0.85rem;
+        }
+        .link-button:hover, .link-button:focus {
+            background: none;
+            color: var(--err);
+            box-shadow: none;
+        }
+        .small-button {
+            padding: 0.3rem 0.8rem;
+            font-size: 0.85rem;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.15rem 0.6rem;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .chip.neutral {
+            background: color-mix(in srgb, var(--muted) 14%, transparent);
+            color: var(--muted);
+        }
+        table {
+            font-size: 0.92rem;
+        }
+        details summary {
+            font-weight: 500;
+        }
+        textarea {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 1rem; /* iPhone Safari zooms into fields with text smaller than 16px */
+        }
+
+        /* Date field: shows "4 Nov 2026" while a transparent native date input on top opens the picker. */
+        .date-field {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: var(--pico-spacing);
+            padding: var(--pico-form-element-spacing-vertical) var(--pico-form-element-spacing-horizontal);
+            border: var(--pico-border-width) solid var(--pico-form-element-border-color);
+            border-radius: var(--pico-border-radius);
+            background: var(--pico-form-element-background-color);
+            color: var(--pico-color);
+            font-size: 1rem;
+            line-height: var(--pico-line-height);
+        }
+        .date-field:focus-within {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--pico-primary-focus);
+        }
+        .date-field svg {
+            width: 1.1rem;
+            height: 1.1rem;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+        .date-field input[type="date"] {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* ---------- Workout wizard ---------- */
+        .wz-eyebrow {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--muted);
+        }
+        .wz-title {
+            font-size: 1.6rem;
+            letter-spacing: -0.02em;
+            margin: 0.15rem 0 1rem;
+        }
+        .wz-subtitle {
+            display: block;
+            font-size: 1rem;
+            font-weight: 500;
+            letter-spacing: 0;
+            color: var(--muted);
+            margin-top: 0.1rem;
+        }
+        .day-picker {
+            display: grid;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .day-option {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            text-align: left;
+            padding: 0.8rem 1rem;
+            background: var(--surface);
+            color: inherit;
+            border: 1.5px solid var(--line);
+            box-shadow: none;
+        }
+        .day-option:hover, .day-option:focus {
+            background: var(--surface);
+            border-color: var(--accent);
+            color: inherit;
+        }
+        .day-option[aria-pressed="true"] {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+        .day-option .day-name {
+            font-weight: 600;
+            display: block;
+        }
+        .day-option .day-meta {
+            font-size: 0.82rem;
+            color: var(--muted);
+        }
+        .segmented {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.25rem;
+            padding: 0.25rem;
+            border-radius: var(--pico-border-radius);
+            background: var(--surface-2);
+            border: 1px solid var(--line);
+            margin-bottom: 0.5rem;
+        }
+        .segmented button {
+            margin: 0;
+            padding: 0.55rem 0.5rem;
+            border: none;
+            border-radius: calc(var(--pico-border-radius) - 0.2rem);
+            background: transparent;
+            color: var(--muted);
+            font-weight: 600;
+            box-shadow: none;
+        }
+        .segmented button:hover, .segmented button:focus {
+            background: transparent;
+            color: inherit;
+        }
+        .segmented button[aria-checked="true"] {
+            background: var(--surface);
+            color: var(--accent);
+            box-shadow: var(--shadow);
+        }
+
+        .week-block {
+            margin-bottom: 1rem;
+        }
+        .week-heading {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .week-heading .muted {
+            font-weight: 400;
+        }
+        .week-strip {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.4rem;
+        }
+        .week-seg {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.05rem;
+            margin: 0;
+            padding: 0.5rem 0 0.4rem;
+            border: 1.5px solid var(--line);
+            border-radius: var(--pico-border-radius);
+            background: var(--surface);
+            color: var(--muted);
+            box-shadow: none;
+            line-height: 1.2;
+        }
+        .week-seg:hover, .week-seg:focus {
+            background: var(--surface);
+            color: var(--muted);
+            border-color: var(--accent);
+        }
+        .week-seg.done, .week-seg.done:hover, .week-seg.done:focus {
+            background: var(--accent-soft);
+            border-color: transparent;
+            color: var(--accent);
+        }
+        .week-seg.skipped, .week-seg.skipped:hover, .week-seg.skipped:focus {
+            border-style: dashed;
+            color: var(--warn);
+        }
+        .week-seg.selected, .week-seg.selected:hover, .week-seg.selected:focus {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--pico-primary-inverse);
+        }
+        .week-num {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .week-sub {
+            font-size: 0.72rem;
+            font-weight: 500;
+            min-height: 0.9rem;
+        }
+        .wz-date-label {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .wz-preview {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 1.25rem;
+        }
+        .wz-preview li {
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--line);
+            margin: 0;
+        }
+        .wz-preview li:last-child {
+            border-bottom: none;
+        }
+        .wz-preview .alt {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+        .wz-primary {
+            width: 100%;
+            padding: 0.85rem;
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        .wz-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 1rem;
+        }
+        .wz-count {
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            color: var(--muted);
+        }
+        .wz-progress {
+            display: flex;
+            gap: 0.3rem;
+            margin: 0.6rem 0 1.25rem;
+        }
+        .wz-progress span {
+            flex: 1;
+            height: 0.3rem;
+            border-radius: 999px;
+            background: var(--line);
+        }
+        .wz-progress span.done { background: var(--accent); }
+        .wz-progress span.skipped { background: color-mix(in srgb, var(--muted) 45%, transparent); }
+        .wz-progress span.current { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+        .wz-movement {
+            font-size: 1.55rem;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+            margin: 0 0 0.6rem;
+        }
+        select.wz-movement-select {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }
+        .chips {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        .tiles {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+            gap: 0.6rem;
+            margin-bottom: 1.25rem;
+        }
+        .tile {
+            padding: 0.8rem 0.95rem;
+            border-radius: var(--pico-border-radius);
+            background: var(--surface-2);
+        }
+        .tile.accent {
+            background: var(--accent-soft);
+            border-color: transparent;
+        }
+        .tile-label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--muted);
+        }
+        .tile.accent .tile-label {
+            color: var(--accent);
+        }
+        .tile-value {
+            font-size: 1.35rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            margin-top: 0.1rem;
+        }
+        .tile-sub {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .stepper-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+        .stepper > label {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 0.3rem;
+        }
+        .stepper-control {
+            display: grid;
+            grid-template-columns: 2.6rem 1fr 2.6rem;
+            align-items: stretch;
+            border: 1px solid var(--pico-form-element-border-color);
+            border-radius: var(--pico-border-radius);
+            background: var(--pico-form-element-background-color);
+            overflow: hidden;
+        }
+        .stepper-control:focus-within {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--pico-primary-focus);
+        }
+        .stepper-control input {
+            margin: 0;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            padding: 0.6rem 0;
+            -moz-appearance: textfield;
+        }
+        .stepper-control input:focus {
+            box-shadow: none;
+        }
+        .stepper-control input::-webkit-outer-spin-button,
+        .stepper-control input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .stepper-control button {
+            margin: 0;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            color: var(--accent);
+            font-size: 1.4rem;
+            font-weight: 500;
+            line-height: 1;
+            box-shadow: none;
+        }
+        .stepper-control button:hover, .stepper-control button:focus {
+            background: var(--accent-soft);
+        }
+        .stepper-control button:active {
+            background: color-mix(in srgb, var(--accent) 25%, transparent);
+        }
+
+        .wz-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr 2fr;
+            gap: 0.5rem;
+        }
+        .wz-actions button {
+            margin: 0;
+            padding: 0.8rem 0.5rem;
+            font-weight: 600;
+        }
+        .wizard-status {
+            min-height: 1.4rem;
+            font-size: 0.85rem;
+            margin: 0.75rem 0 0.25rem;
+        }
+        .wizard-status.ok { color: var(--ok); }
+        .wizard-status.offline { color: var(--warn); }
+        .wizard-status.error { color: var(--err); }
+        .wz-footer {
+            text-align: center;
+        }
+
+        .wz-done {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        .wz-done .wz-done-icon {
+            font-size: 2.5rem;
+        }
+        .wz-done h2 {
+            margin: 0.25rem 0 0.1rem;
+        }
+        .summary-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 0.5rem;
+        }
+        .summary-list li {
+            list-style: none;
+            margin: 0;
+            padding: 0.65rem 0;
+            border-bottom: 1px solid var(--line);
+        }
+        .summary-list li:last-child {
+            border-bottom: none;
+        }
+        .summary-list .name {
+            font-weight: 600;
+        }
+        .summary-list .detail {
+            font-size: 0.88rem;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* ---------- History ---------- */
+        .history-item {
+            border-bottom: 1px solid var(--line);
+            padding: 0.25rem 0;
+            margin: 0;
+        }
+        .history-item:last-of-type {
+            border-bottom: none;
+        }
+        .history-item summary {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0;
+        }
+        .history-item summary::after {
+            margin-left: auto;
+        }
+        .date-badge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 2.9rem;
+            padding: 0.25rem 0;
+            border-radius: 0.6rem;
+            background: var(--accent-soft);
+            color: var(--accent);
+            line-height: 1.1;
+        }
+        .date-badge .day {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .date-badge .month {
+            font-size: 0.72rem;
+            font-weight: 500;
+        }
+        .history-title {
+            display: flex;
+            flex-direction: column;
+        }
+        .history-title small {
+            color: var(--muted);
+            font-weight: 400;
+        }
+
         #previous-exercises:has(tbody:empty) table {
             display: none;
         }
         #previous-exercises:has(tbody:empty) {
             text-align: center;
-            color: var(--pico-muted-color);
+            color: var(--muted);
         }
         #previous-exercises:has(tbody:empty)::after {
-            content: "No exercises logged yet. Start by adding your first exercise!";
+            content: "No exercises logged yet.";
         }
-
         .delete-btn {
             background: none;
             border: none;
-            color: var(--pico-muted-color);
+            color: var(--muted);
             cursor: pointer;
-            padding: 0.25rem 0.5rem;
+            padding: 0.1rem 0.4rem;
             margin: 0;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             width: auto;
         }
         .delete-btn:hover {
-            color: #dc3545;
+            background: none;
+            color: var(--err);
         }
-
-        .empty-state {
-            text-align: center;
-            padding: 2rem;
-            color: var(--pico-muted-color);
-        }
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: 0.5rem;
-        }
-
         .pagination {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -91,32 +874,739 @@
             justify-self: end;
         }
         .pagination button {
-            width: 8rem;
+            width: 7rem;
+            padding: 0.4rem;
+        }
+        #recommendation-results {
+            margin-top: 1rem;
+        }
+        .calc-hint {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-bottom: 0.5rem;
+        }
+        .calc-log {
+            border-top: 1px solid var(--line);
+            padding-top: 1rem;
+        }
+        .calc-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0 0.75rem;
+        }
+        .calc-grid label {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .calc-log button {
+            width: 100%;
         }
 
-        #offline-banner {
-            background: #fff3cd;
-            color: #856404;
+
+        /* ---------- Session focus mode ---------- */
+        /* While a session runs on the Workout page, the tab bar gives way to a bar with Back/Skip/Next. */
+        body.in-session[data-page="workout"] .tab-bar,
+        body.in-session .link-list {
+            display: none;
+        }
+        body.in-session[data-page="workout"] main.app {
+            padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+        }
+        body.in-session .wz-action-bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 20;
+            padding: 0.7rem 1rem calc(env(safe-area-inset-bottom, 0px) + 0.7rem);
+            background: color-mix(in srgb, var(--surface) 90%, transparent);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-top: 1px solid var(--line);
+        }
+        body.in-session .wz-action-bar .wz-actions {
+            max-width: 38rem;
+            margin: 0 auto;
+        }
+        .wz-top-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+        .wz-day {
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .wz-top-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+        .wz-top {
+            align-items: center;
+        }
+        .icon-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.25rem;
+            height: 2.25rem;
+            margin: 0;
+            padding: 0;
+            border-radius: 50%;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            color: var(--muted);
+            box-shadow: none;
+        }
+        .icon-button svg {
+            width: 1.1rem;
+            height: 1.1rem;
+        }
+        .icon-button:hover, .icon-button:focus {
+            background: var(--surface-2);
+            color: inherit;
+            border-color: var(--line);
+        }
+
+        /* ---------- Motion ---------- */
+        @keyframes wz-in-forward {
+            from { opacity: 0; transform: translateX(18px); }
+            to { opacity: 1; transform: none; }
+        }
+        @keyframes wz-in-back {
+            from { opacity: 0; transform: translateX(-18px); }
+            to { opacity: 1; transform: none; }
+        }
+        @keyframes seg-fill {
+            from { transform: scaleX(0); }
+            to { transform: scaleX(1); }
+        }
+        @keyframes pop {
+            0% { transform: scale(0.6); opacity: 0; }
+            60% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1); }
+        }
+        #workout-app.wz-enter {
+            animation: wz-in-forward 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        #workout-app.wz-enter[data-dir="back"] {
+            animation-name: wz-in-back;
+        }
+        .wz-progress span {
+            position: relative;
+            overflow: hidden;
+        }
+        .wz-progress span.done {
+            background: var(--line);
+        }
+        .wz-progress span.done::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: var(--accent);
+            border-radius: inherit;
+            transform-origin: left center;
+        }
+        .wz-progress span.just-done::after {
+            animation: seg-fill 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .wizard-status.ok::before {
+            content: "✓";
+            display: inline-block;
+            margin-right: 0.35rem;
+            font-weight: 700;
+            animation: pop 0.35s ease-out;
+        }
+        .wz-done-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 3.5rem;
+            height: 3.5rem;
+            border-radius: 50%;
+            background: var(--accent);
+            color: var(--pico-primary-inverse);
+            animation: pop 0.45s ease-out;
+        }
+        .wz-done-icon svg {
+            width: 1.9rem;
+            height: 1.9rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+
+        /* ---------- Finish screen ---------- */
+        .wz-stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+        .wz-stats div {
+            display: flex;
+            flex-direction: column;
+        }
+        .wz-stats strong {
+            font-size: 1.5rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .wz-stats span {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .summary-list .skipped-item .name {
+            color: var(--muted);
+            font-weight: 500;
+        }
+        .chip.best {
+            background: color-mix(in srgb, var(--ok) 15%, transparent);
+            color: var(--ok);
+        }
+        .delta {
+            color: var(--muted);
+            font-size: 0.85rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .delta.up { color: var(--ok); }
+        .delta.down { color: var(--warn); }
+
+        /* ---------- History: cycle overview and trends ---------- */
+        .cycle-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.45rem 0;
+        }
+        .cycle-header {
+            padding-top: 0;
+        }
+        .cycle-day {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .cycle-cells {
+            display: grid;
+            grid-template-columns: repeat(4, 2rem);
+            gap: 0.35rem;
+        }
+        .cycle-week {
             text-align: center;
-            padding: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--muted);
+        }
+        .cycle-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 2rem;
+            border-radius: 0.5rem;
+            background: var(--surface-2);
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .cycle-cell.done {
+            background: var(--accent-soft);
+        }
+        .cycle-cell.skipped {
+            background: transparent;
+            border: 1.5px dashed color-mix(in srgb, var(--warn) 60%, transparent);
+        }
+        .trend-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            margin: 0;
+            padding: 0.6rem 0;
+            border: none;
+            border-bottom: 1px solid var(--line);
+            border-radius: 0;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            box-shadow: none;
+        }
+        .trend-row:hover, .trend-row:focus {
+            background: transparent;
+            color: inherit;
+        }
+        .trend-row:last-of-type {
+            border-bottom: none;
+        }
+        .trend-name {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            font-weight: 500;
+        }
+        .trend-name small {
+            color: var(--muted);
+            font-weight: 400;
+        }
+        .sparkline {
+            color: var(--accent);
+        }
+        .trend-value {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            min-width: 4.5rem;
+        }
+        .trend-note {
+            font-size: 0.8rem;
+            margin: 0.75rem 0 0;
+        }
+
+        /* ---------- Program editor (static/program.js) ---------- */
+        .day-cards {
+            display: grid;
+            gap: 0.6rem;
+            margin-bottom: 0.75rem;
+        }
+        .day-card {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            margin: 0;
+            padding: 0.9rem 1rem;
+            border: none;
+            border-radius: 1rem;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+            color: inherit;
+            text-align: left;
+        }
+        .day-card:hover, .day-card:focus {
+            background: var(--surface);
+            color: inherit;
+        }
+        .day-card:active {
+            transform: scale(0.99);
+        }
+        .day-card > svg, .movement-pick > svg {
+            width: 1.1rem;
+            height: 1.1rem;
+            flex-shrink: 0;
+            color: var(--muted);
+        }
+        .day-card-text {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+        .day-card-name {
+            font-weight: 600;
+            font-size: 1.05rem;
+        }
+        .day-card-meta {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .day-card-exercises {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: 0.2rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .add-button {
+            width: 100%;
+            margin: 0 0 1rem;
+            padding: 0.8rem;
+            border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+            border-radius: 1rem;
+            background: transparent;
+            color: var(--accent);
+            font-weight: 600;
+            box-shadow: none;
+        }
+        .add-button:hover, .add-button:focus {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .link-like {
+            background: none;
+            border: none;
+            padding: 0;
+            width: auto;
+            color: var(--accent);
+            box-shadow: none;
+        }
+        .link-like:hover, .link-like:focus {
+            background: none;
+            color: var(--accent-strong);
+        }
+        .editor-title {
+            font-size: 1.4rem;
+            margin: 0 0.25rem 0.75rem;
+        }
+        .editor-card label {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .ex-card {
+            background: var(--surface);
+            border-radius: 1rem;
+            box-shadow: var(--shadow);
+            padding: 0.9rem 1rem 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .ex-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.6rem;
+        }
+        .ex-num {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+        .ex-tools {
+            display: flex;
+            gap: 0.35rem;
+        }
+        .icon-button.small {
+            width: 2rem;
+            height: 2rem;
+        }
+        .icon-button.small svg {
+            width: 1rem;
+            height: 1rem;
+        }
+        .icon-button:disabled {
+            opacity: 0.35;
+        }
+        .icon-button.danger, .secondary.outline.danger {
+            color: var(--err);
+        }
+        .secondary.outline.danger {
+            border-color: color-mix(in srgb, var(--err) 50%, transparent);
+        }
+        .ex-movement {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.4rem;
+        }
+        .ex-or {
+            font-size: 0.8rem;
+            color: var(--muted);
+            width: 1.2rem;
+            flex-shrink: 0;
+        }
+        .movement-pick {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 0;
+            margin: 0;
+            padding: 0.7rem 0.9rem;
+            border: 1px solid var(--pico-form-element-border-color);
+            border-radius: var(--pico-border-radius);
+            background: var(--pico-form-element-background-color);
+            color: inherit; /* Not var(--pico-color): Pico sets that to the button text colour (white) on buttons */
+            font-weight: 600;
+            text-align: left;
+            box-shadow: none;
+        }
+        .movement-pick:hover, .movement-pick:focus {
+            background: var(--pico-form-element-background-color);
+            color: inherit;
+            border-color: var(--accent);
+        }
+        .movement-pick span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .movement-pick.empty {
+            color: var(--muted);
+            font-weight: 500;
+            border-style: dashed;
+        }
+        .add-alt {
+            margin: 0.1rem 0 0.9rem;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .ex-card .stepper-grid {
+            margin-bottom: 0.9rem;
+        }
+        .segmented.rpe-modes {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .rpe-modes button {
+            font-size: 0.82rem;
+            padding: 0.5rem 0.25rem;
+        }
+        .rpe-field {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-top: 0.5rem;
+        }
+        .rpe-field input {
+            text-align: center;
+            margin-bottom: 0;
+        }
+        .rpe-weeks {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+        .editor-actions {
+            display: grid;
+            gap: 0.6rem;
+            margin-top: 0.5rem;
+        }
+        .editor-secondary {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .editor-secondary button {
+            flex: 1;
+            margin: 0;
+        }
+
+        /* Movement picker: a sheet that slides up from the bottom */
+        body.sheet-open {
+            overflow: hidden;
+        }
+        .sheet-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            background: rgba(10, 12, 20, 0.45);
+        }
+        .sheet {
+            width: 100%;
+            max-width: 40rem;
+            max-height: 80vh;
+            max-height: 80dvh;
+            display: flex;
+            flex-direction: column;
+            padding: 0.9rem 1rem calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+            border-radius: 1.25rem 1.25rem 0 0;
+            background: var(--surface);
+            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+            animation: sheet-up 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        @keyframes sheet-up {
+            from { transform: translateY(100%); }
+            to { transform: none; }
+        }
+        .sheet-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .sheet input[type="search"] {
+            margin-bottom: 0.5rem;
+        }
+        .sheet-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .sheet-list li {
+            list-style: none;
+            margin: 0;
+        }
+        .sheet-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            margin: 0;
+            padding: 0.8rem 0.25rem;
+            border: none;
+            border-bottom: 1px solid var(--line);
+            border-radius: 0;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            box-shadow: none;
+        }
+        .sheet-item:hover, .sheet-item:focus {
+            background: transparent;
+            color: inherit;
+        }
+        .sheet-item:active {
+            background: var(--surface-2);
+        }
+        .sheet-item.current {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .sheet-item small {
+            color: var(--muted);
+            font-weight: 400;
+        }
+        .sheet-empty {
+            padding: 1rem 0.25rem;
+        }
+        .sheet-create {
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--line);
+        }
+        .sheet-create label {
             font-size: 0.9rem;
-            border-bottom: 1px solid #ffc107;
+        }
+        .sheet-create button {
+            width: 100%;
+            margin: 0.5rem 0 0;
+        }
+        .picker-hint {
+            display: block;
+            min-height: 1.2rem;
+            margin-top: 0.4rem;
+            color: var(--muted);
+        }
+        .picker-hint.error {
+            color: var(--err);
+        }
+
+        /* Touch screens (iPhone): hover styles stick after a tap, so undo them. */
+        @media (hover: none) {
+            .link-list a:hover { background: transparent; }
+            .link-list a:active { background: var(--surface-2); }
+            .day-option:not([aria-pressed="true"]):hover { border-color: var(--line); }
+            .week-seg:not(.selected):not(.done):hover { border-color: var(--line); }
+            .segmented button:not([aria-checked="true"]):hover { color: var(--muted); }
+            .stepper-control button:hover { background: transparent; }
+            .stepper-control button:active { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+            .link-button:hover { color: var(--muted); }
+            .delete-btn:hover { color: var(--muted); }
         }
     </style>
 </head>
 <body>
-    <div id="offline-banner" hidden>You are offline. Showing cached data.</div>
-    <main class="container">
-        <h1>Workout Tracker</h1>
+    <header class="app-bar">
+        <div class="app-bar-inner">
+            <img src="/static/logo.svg" alt="">
+            <h1 id="app-bar-title">Workout</h1>
+            <a href="#profile" class="profile-button" data-tab-link="profile" aria-label="Profile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+            </a>
+        </div>
+    </header>
+    <div id="offline-banner" hidden>You're offline. Workouts are saved on this device and upload later.</div>
 
-        <!-- Weight Recommendation -->
-        <article>
-            <header>
-                <h2>Weight Recommendation</h2>
-            </header>
+    <main class="app">
+        <!-- ===== Workout tab ===== -->
+        <section data-tab="workout">
+            <article id="workout-card">
+                <div id="workout-app">
+                    <p class="muted">Loading...</p>
+                </div>
+            </article>
+            <nav class="link-list" aria-label="More">
+                <a href="#log">
+                    <span><strong>Log an extra exercise</strong><small>Something outside your program</small></span>
+                    <span aria-hidden="true">›</span>
+                </a>
+                <a href="#calculator">
+                    <span><strong>Load calculator</strong><small>Estimated 1RM and load for any reps and RPE</small></span>
+                    <span aria-hidden="true">›</span>
+                </a>
+            </nav>
+        </section>
 
-            <form id="recommendation-form" method="post">
-                <div class="form-row">
+        <!-- ===== Workout sub-pages ===== -->
+        <section data-tab="log" hidden>
+            <a href="#workout" class="back-link">‹ Workout</a>
+            <article id="exercise-form">
+                <div id="success-message"></div>
+                <form hx-post="/exercises/"
+                      hx-swap="none"
+                      hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/exercises/')) { this.reset(); setDateField(document.getElementById('exercise_date'), todayISODate()); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>Exercise logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); document.body.dispatchEvent(new Event('exercise-logged')); }">
+
+                    <div class="form-row">
+                        <label>
+                            Date
+                            <span class="date-field">
+                                <span class="date-display"></span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+                                <input type="date" id="exercise_date" name="exercise_date">
+                            </span>
+                        </label>
+                        <label>
+                            Movement
+                            <select id="exercise_name" name="exercise_name" required
+                                    hx-get="/movements"
+                                    hx-trigger="load, movement-created from:body"
+                                    hx-swap="innerHTML">
+                                <option value="">Loading movements...</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="form-row">
+                        <label>
+                            Sets
+                            <input type="number" id="sets" name="sets" required min="1" max="10" value="3" inputmode="numeric">
+                        </label>
+                        <label>
+                            Reps
+                            <input type="number" id="reps" name="reps" required min="1" max="20" placeholder="e.g., 10" inputmode="numeric">
+                        </label>
+                        <label>
+                            Weight (kg)
+                            <input type="text" id="weight" name="weight" required data-min="0" placeholder="e.g., 50" inputmode="decimal" autocomplete="off">
+                        </label>
+                        <label>
+                            RPE
+                            <input type="text" id="rpe" name="rpe" required data-min="6" data-max="10" placeholder="6-10" inputmode="decimal" autocomplete="off">
+                        </label>
+                    </div>
+
+                    <button type="submit">Log exercise</button>
+                </form>
+            </article>
+
+        </section>
+
+        <section data-tab="calculator" hidden>
+            <a href="#workout" class="back-link">‹ Workout</a>
+            <p class="muted page-intro">Pick a movement to see your estimated 1RM from your recent sets, and the load to use for a target number of reps and RPE.</p>
+            <article>
+                <form id="recommendation-form" method="post">
                     <label>
                         Movement
                         <select name="exercise_name" required
@@ -127,179 +1617,298 @@
                             <option value="">Loading movements...</option>
                         </select>
                     </label>
-                    <label>
-                        Reps
-                        <input type="number" name="reps" required min="1" max="20" placeholder="e.g., 10">
-                    </label>
-                    <label>
-                        RPE
-                        <input type="number" name="rpe" required min="6" max="10" step="0.5" placeholder="6-10">
-                    </label>
+                    <div class="form-row">
+                        <label>
+                            Reps
+                            <input type="number" name="reps" required min="1" max="20" placeholder="e.g., 10" inputmode="numeric">
+                        </label>
+                        <label>
+                            RPE
+                            <input type="text" name="rpe" required data-min="6" data-max="10" placeholder="6-10" inputmode="decimal" autocomplete="off">
+                        </label>
+                    </div>
+                    <button type="submit"
+                            hx-post="/recommendations"
+                            hx-include="#recommendation-form"
+                            hx-target="#recommendation-results"
+                            hx-swap="innerHTML">
+                        Calculate
+                    </button>
+                </form>
+                <div id="recommendation-results" style="overflow-x: auto"></div>
+            </article>
+
+        </section>
+
+        <!-- ===== History tab ===== -->
+        <section data-tab="history" hidden>
+            <h2 class="section-title">This cycle</h2>
+            <article>
+                <div id="cycle-overview"><p class="muted">Loading...</p></div>
+            </article>
+
+            <h2 class="section-title">Sessions</h2>
+            <article>
+                <div id="workout-history">
+                    <p class="muted">Loading...</p>
                 </div>
-                <button type="submit"
-                        hx-post="/recommendations"
-                        hx-include="#recommendation-form"
-                        hx-target="#recommendation-results"
-                        hx-swap="innerHTML">
-                    Get Recommendation
-                </button>
-            </form>
+            </article>
 
-            <div id="recommendation-results" style="overflow-x: auto">
-                <!-- Recommendations will appear here -->
-            </div>
-        </article>
+            <h2 class="section-title">Movements</h2>
+            <article>
+                <div id="movement-trends"><p class="muted">Loading...</p></div>
+            </article>
 
-        <!-- Log Exercise Form -->
-        <article id="exercise-form">
-            <header>
-                <h2>Log Exercise</h2>
-            </header>
-            <div id="success-message"></div>
-            <form hx-post="/exercises/"
-                  hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful && event.detail.xhr.responseURL.includes('/exercises/')) { this.reset(); document.getElementById('exercise_date').valueAsDate = new Date(); document.getElementById('sets').value = 3; document.getElementById('success-message').innerHTML = '<div class=\'success-message\'>Exercise logged successfully!</div>'; setTimeout(() => document.getElementById('success-message').innerHTML = '', 3000); document.body.dispatchEvent(new Event('exercise-logged')); }">
-
+            <h2 class="section-title">Progress</h2>
+            <article id="progress-card">
                 <div class="form-row">
                     <label>
-                        Date
-                        <input type="date" id="exercise_date" name="exercise_date">
-                    </label>
-                    <label>
                         Movement
-                        <select id="exercise_name" name="exercise_name" required
-                                hx-get="/movements"
-                                hx-trigger="load, movement-created from:body"
-                                hx-swap="innerHTML">
+                        <select id="progress-exercise"
+                            hx-get="/movements"
+                            hx-trigger="load, movement-created from:body"
+                            hx-swap="innerHTML">
                             <option value="">Loading movements...</option>
                         </select>
                     </label>
-                </div>
-
-                <div class="form-row">
                     <label>
-                        Sets
-                        <input type="number" id="sets" name="sets" required min="1" max="10" value="3">
-                    </label>
-                    <label>
-                        Reps
-                        <input type="number" id="reps" name="reps" required min="1" max="20" placeholder="e.g., 10">
-                    </label>
-                    <label>
-                        Weight (kg)
-                        <input type="number" id="weight" name="weight" required min="0" step="0.25" placeholder="e.g., 50">
-                    </label>
-                    <label>
-                        RPE
-                        <input type="number" id="rpe" name="rpe" required min="6" max="10" step="0.5" placeholder="6-10">
+                        Time period
+                        <select id="progress-period">
+                            <option value="30">1 month</option>
+                            <option value="180" selected>6 months</option>
+                            <option value="365">1 year</option>
+                        </select>
                     </label>
                 </div>
+                <button onclick="loadProgress()">Show estimated 1RM</button>
+                <div id="progress-no-data" class="failure-message" hidden>No data with an RPE for this movement in the selected period.</div>
+                <canvas id="progress-chart" hidden></canvas>
+            </article>
 
-                <button type="submit">Log Exercise</button>
-            </form>
-        </article>
-
-        <!-- Previous Exercises -->
-        <article>
-            <header>
-                <h2>Previous Exercises</h2>
-            </header>
-            <div id="previous-exercises"
-                 hx-get="/exercises"
-                 hx-trigger="load, exercise-logged from:body"
-                 hx-swap="outerHTML">
-                <div class="empty-state">
-                    <div class="empty-state-icon">⏳</div>
-                    <p>Loading exercises...</p>
+            <h2 class="section-title">All exercises</h2>
+            <article>
+                <div id="previous-exercises"
+                     hx-get="/exercises"
+                     hx-trigger="load, exercise-logged from:body"
+                     hx-swap="outerHTML">
+                    <p class="muted">Loading...</p>
                 </div>
+            </article>
+        </section>
+
+        <!-- ===== Program tab ===== -->
+        <section data-tab="program" hidden>
+            <h2 class="section-title">Workout days</h2>
+            <!-- Rendered by static/program.js -->
+            <div id="program-editor">
+                <p class="muted">Loading...</p>
             </div>
-        </article>
 
-        <!-- Update Bodyweight -->
-        <article>
-            <header>
-                <h2>Update Bodyweight</h2>
-            </header>
-            <form hx-put="/bodyweight"
-                  hx-target="#bodyweight-display"
-                  hx-swap="outerHTML">
-                  <div class="form-row"></div>
-                    <label>
-                        Bodyweight (kg)
-                        <input type="number" id="bodyweight" name="bodyweight" required min="40" max="150" step="0.1" placeholder="e.g., 75">
-                    </label>
-                    <div style="display: flex; align-items: end;">
-                        <button type="submit">Update</button>
-                    </div>
-                </div>
-            </form>
-            <div hx-get="/bodyweight"
-                 hx-trigger="load"
-                 hx-swap="outerHTML">
-                 <p style="font-size: 0.9rem; color: var(--pico-muted-color);">
-                    Loading...
-                 </p>
-            </div>
-        </article>
-
-        <!-- See Progress -->
-        <article>
-            <header>
-                <h2>Progress</h2>
-            </header>
-            <div class="form-row">
-                <label>
-                    Movement
-                    <select id="progress-exercise"
-                        hx-get="/movements"
-                        hx-trigger="load, movement-created from:body"
-                        hx-swap="innerHTML">
-                        <option value="">Loading movements...</option>
-                    </select>
-                </label>
-                <label>
-                    Time Period
-                    <select id="progress-period">
-                        <option value="30">1 Month</option>
-                        <option value="180" selected>6 Months</option>
-                        <option value="365">1 Year</option>
-                    </select>
-                </label>
-            </div>
-            <button onclick="loadProgress()">Show Progress</button>
-            <div id="progress-no-data" class="failure-message" hidden>No data for this movement in the selected period.</div>
-            <canvas id="progress-chart" hidden></canvas>
-        </article>
-
-        <!-- BEGIN Create Movement -->
-        <article>
-            <header>
-                <h2>Create Movement</h2>
-            </header>
-            <form hx-post="/movements"
-                  hx-target="#create-movement-result"
-                  hx-swap="innerHTML"
-                  hx-on:movement-created="this.reset(); setTimeout(() => document.getElementById('create-movement-result').innerHTML = '', 3000);">
-
-                <div class="form-row">
+            <!-- BEGIN Create Movement -->
+            <h2 class="section-title">Create movement</h2>
+            <article>
+                <form hx-post="/movements"
+                      hx-target="#create-movement-result"
+                      hx-swap="innerHTML"
+                      hx-on:movement-created="this.reset(); setTimeout(() => document.getElementById('create-movement-result').innerHTML = '', 3000);">
                     <label>
                         Name
-                        <input type="text" id="name" name="name" required placeholder="e.g., Pull-up">
+                        <input type="text" id="name" name="name" required placeholder="e.g., Pull-up" autocomplete="off">
+                        <small>Names are written in a standard form: “pull up” becomes “Pull-up”, “Cable Seated Row” becomes “Cable seated row”.</small>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem;">
-                        <input type="checkbox" id="dip_belt" name="dip_belt" style="margin: 0;">
-                        Dip belt
+                    <label>
+                        <input type="checkbox" role="switch" id="dip_belt" name="dip_belt">
+                        Dip belt (load is added to bodyweight)
                     </label>
+                    <button type="submit">Create</button>
+                </form>
+                <div id="create-movement-result"></div>
+            </article>
+            <!-- END Create Movement -->
+        </section>
+
+        <!-- ===== Profile (opened from the top bar) ===== -->
+        <section data-tab="profile" hidden>
+            <h2 class="section-title">Bodyweight</h2>
+            <article>
+                <p class="muted" style="font-size: 0.9rem;">Used to calculate loads for dip-belt movements.</p>
+                <form hx-put="/bodyweight"
+                      hx-target="#bodyweight-display"
+                      hx-swap="outerHTML">
+                    <fieldset role="group">
+                        <input type="text" id="bodyweight" name="bodyweight" required data-min="40" data-max="150" placeholder="Bodyweight (kg)" inputmode="decimal" autocomplete="off">
+                        <button type="submit">Update</button>
+                    </fieldset>
+                </form>
+                <div hx-get="/bodyweight"
+                     hx-trigger="load"
+                     hx-swap="outerHTML">
+                    <p class="muted">Loading...</p>
                 </div>
-                <button type="submit">Create</button>
-            </form>
-            <div id="create-movement-result"></div>
-        </article>
-        <!-- END Create Movement -->
+            </article>
+
+            <h2 class="section-title">Appearance</h2>
+            <article>
+                <div class="segmented" role="radiogroup" aria-label="Theme">
+                    <button type="button" role="radio" data-theme-choice="system">System</button>
+                    <button type="button" role="radio" data-theme-choice="light">Light</button>
+                    <button type="button" role="radio" data-theme-choice="dark">Dark</button>
+                </div>
+                <small class="muted">System follows your device's light or dark setting. Saved on this device.</small>
+            </article>
+        </section>
     </main>
 
+    <nav class="tab-bar" aria-label="Sections">
+        <div class="tab-bar-inner">
+            <a href="#workout" data-tab-link="workout">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/></svg>
+                Workout
+            </a>
+            <a href="#history" data-tab-link="history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+                History
+            </a>
+            <a href="#program" data-tab-link="program">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+                Program
+            </a>
+        </div>
+    </nav>
+
+    <!-- Dates: always shown as "4 Nov 2026", whatever the device's locale. -->
     <script>
-        document.getElementById('exercise_date').valueAsDate = new Date();
+        const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        // "2026-11-04" -> "4 Nov 2026"
+        window.formatLongDate = function (isoDate) {
+            const [year, month, day] = isoDate.slice(0, 10).split('-');
+            return `${parseInt(day, 10)} ${MONTH_NAMES[parseInt(month, 10) - 1]} ${year}`;
+        };
+
+        function todayISODate() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        const CALENDAR_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>';
+
+        // Markup for a date field, for pages rendered from JS.
+        window.dateFieldHtml = function (id, isoDate) {
+            return `<span class="date-field"><span class="date-display">${formatLongDate(isoDate)}</span>${CALENDAR_ICON}` +
+                `<input type="date" id="${id}" value="${isoDate}" required></span>`;
+        };
+
+        function updateDateDisplay(input) {
+            const display = input.closest('.date-field').querySelector('.date-display');
+            display.textContent = input.value ? formatLongDate(input.value) : 'Pick a date';
+        }
+
+        function setDateField(input, isoDate) {
+            input.value = isoDate;
+            updateDateDisplay(input);
+        }
+
+        document.addEventListener('input', (event) => {
+            if (event.target.matches('.date-field input')) updateDateDisplay(event.target);
+        });
+        document.addEventListener('change', (event) => {
+            if (event.target.matches('.date-field input')) updateDateDisplay(event.target);
+        });
+        // Desktop browsers only open the picker from their calendar icon, which is hidden here.
+        document.addEventListener('click', (event) => {
+            const input = event.target.closest('.date-field') && event.target.closest('.date-field').querySelector('input');
+            if (input && input.showPicker) {
+                try { input.showPicker(); } catch (e) { /* Not allowed in this context; the native input still works. */ }
+            }
+        });
+    </script>
+
+    <!-- Decimal fields (load, RPE, bodyweight) are type="text" with inputmode="decimal": an iPhone set to a
+         region that writes decimals with a comma shows "," on its keypad, which number fields reject.
+         Commas become dots as you type, and data-min/data-max are checked here instead of by the browser. -->
+    <script>
+        function checkDecimalField(input) {
+            const text = input.value.trim();
+            let problem = '';
+            if (text !== '') {
+                const value = Number(text);
+                if (!Number.isFinite(value)) problem = 'Enter a number, e.g. 12.5';
+                else if (input.dataset.min !== undefined && value < Number(input.dataset.min)) problem = `Must be at least ${input.dataset.min}`;
+                else if (input.dataset.max !== undefined && value > Number(input.dataset.max)) problem = `Must be at most ${input.dataset.max}`;
+            }
+            input.setCustomValidity(problem);
+        }
+        document.addEventListener('input', (event) => {
+            const input = event.target;
+            if (!input.matches('input[inputmode="decimal"]')) return;
+            if (input.value.includes(',')) {
+                const caret = input.selectionStart;
+                input.value = input.value.replace(/,/g, '.');
+                try { input.setSelectionRange(caret, caret); } catch (e) { /* Not a text field */ }
+            }
+            checkDecimalField(input);
+        });
+    </script>
+
+    <!-- Theme choice (Profile > Appearance). The <head> script applies it on load. -->
+    <script>
+        const THEME_COLORS = { light: '#f4f5fa', dark: '#0e1016' };
+        function currentTheme() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            return theme === 'light' || theme === 'dark' ? theme : 'system';
+        }
+        function applyTheme(theme) {
+            if (theme === 'system') document.documentElement.removeAttribute('data-theme');
+            else document.documentElement.setAttribute('data-theme', theme);
+            try {
+                if (theme === 'system') localStorage.removeItem('theme');
+                else localStorage.setItem('theme', theme);
+            } catch (e) { /* Storage unavailable: the choice lasts until the page is reloaded. */ }
+            // Browser UI colour (address bar on phones): forced themes win over the device setting.
+            document.getElementById('theme-color-light').content = theme === 'dark' ? THEME_COLORS.dark : THEME_COLORS.light;
+            document.getElementById('theme-color-dark').content = theme === 'light' ? THEME_COLORS.light : THEME_COLORS.dark;
+            document.querySelectorAll('[data-theme-choice]').forEach((button) => {
+                button.setAttribute('aria-checked', String(button.dataset.themeChoice === theme));
+            });
+            // The chart reads its colours from the theme when drawn, so redraw it.
+            if (typeof progressChart !== 'undefined' && progressChart) loadProgress();
+        }
+        document.querySelectorAll('[data-theme-choice]').forEach((button) => {
+            button.addEventListener('click', () => applyTheme(button.dataset.themeChoice));
+        });
+        applyTheme(currentTheme());
+    </script>
+
+    <!-- Tabs: the URL hash selects the visible section, so links like #program work. -->
+    <script>
+        // Each page: its title and the tab (or header button) highlighted while it's shown.
+        const PAGES = {
+            workout: { title: 'Workout', nav: 'workout' },
+            log: { title: 'Log exercise', nav: 'workout' },
+            calculator: { title: 'Load calculator', nav: 'workout' },
+            history: { title: 'History', nav: 'history' },
+            program: { title: 'Program', nav: 'program' },
+            profile: { title: 'Profile', nav: 'profile' },
+        };
+        function showTab() {
+            const requested = location.hash.slice(1);
+            const page = requested in PAGES ? requested : 'workout';
+            document.querySelectorAll('[data-tab]').forEach((section) => {
+                section.hidden = section.dataset.tab !== page;
+            });
+            document.querySelectorAll('[data-tab-link]').forEach((link) => {
+                if (link.dataset.tabLink === PAGES[page].nav) link.setAttribute('aria-current', 'page');
+                else link.removeAttribute('aria-current');
+            });
+            document.getElementById('app-bar-title').textContent = PAGES[page].title;
+            document.body.dataset.page = page; // Used by the session focus mode CSS
+            window.scrollTo(0, 0);
+        }
+        window.addEventListener('hashchange', showTab);
+        showTab();
+
+        setDateField(document.getElementById('exercise_date'), todayISODate());
     </script>
 
     <!-- JS script for handling the progress chart -->
@@ -316,19 +1925,7 @@
             if (!response.ok) return;
             const data = await response.json();
 
-            // Formats the date as "12 Apr" if the date is on the current year, and as "12 Apr 2020" otherwise.
-            function formatDate(isoString) {
-                const date = new Date(isoString);
-                const day = date.getDate();
-                const month = date.toLocaleString('en', { month: 'short' });
-                const year = date.getFullYear();
-
-                if (year === new Date().getFullYear()) {
-                    return `${day} ${month}`;
-                }
-                return `${day} ${month} ${year}`;
-            }
-            const labels = data.onerepmax.map(d => formatDate(d.date));
+            const labels = data.onerepmax.map(d => formatLongDate(d.date));
             const values = data.onerepmax.map(d => d.value);
 
             const canvas = document.getElementById('progress-chart');
@@ -348,23 +1945,29 @@
             noData.hidden = true;
             canvas.hidden = false;
 
+            const styles = getComputedStyle(document.documentElement);
+            const accent = styles.getPropertyValue('--accent').trim();
+            const muted = styles.getPropertyValue('--muted').trim();
+            const line = styles.getPropertyValue('--line').trim();
             progressChart = new Chart(canvas, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: `${data.exercise} Estimated 1RM (kg)`,
+                        label: `${data.exercise} estimated 1RM (kg)`,
                         data: values,
-                        borderColor: '#667eea',
+                        borderColor: accent,
+                        backgroundColor: accent,
+                        pointRadius: 3,
                         tension: 0.3
                     }]
                 },
                 options: {
                     responsive: true,
+                    plugins: { legend: { labels: { color: muted } } },
                     scales: {
-                        y: {
-                            beginAtZero: false
-                        }
+                        x: { ticks: { color: muted }, grid: { color: line } },
+                        y: { beginAtZero: false, ticks: { color: muted }, grid: { color: line } }
                     }
                 }
             });

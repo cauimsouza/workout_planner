@@ -1,9 +1,12 @@
+import html
+import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from auth import verify_cf_access_token
-from models import Exercise, Movement, User
+from models import Exercise, Movement, User, WorkoutDay, WorkoutSession
+from movement_names import InvalidMovementName, normalize_movement_name
 from database import create_db_and_tables, engine
 
 MIN_REPS = 1
@@ -14,27 +17,30 @@ MIN_SETS = 1
 MAX_SETS = 10
 DEFAULT_SETS = 3
 LIGHTEST_PLATE = 1.25
+CYCLE_WEEKS = 4
+WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, Response, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlmodel import Session, select
+from pydantic import BaseModel, Field as PydanticField
+from sqlmodel import Session, col, delete, select
 
-def format(number: float) -> str:
+def format(number: float | None) -> str:
     """Format a float to remove unnecessary trailing zeros."""
-    return f'{number:g}'
+    return '—' if number is None else f'{number:g}'
 
 def format_date(date: datetime) -> str:
-    if date.year == datetime.now().year:
-        return date.strftime("%d %b")
-    return date.strftime("%d %b %y")
+    """Format a date as "4 Nov 2026"."""
+    return f"{date.day} {date:%b %Y}"
 
 def get_onerepmax(exercise: Exercise) -> float:
     '''Estimate the external 1RM (excluding bodyweight) using Brzycki's formula.
 
     For dip-belt movements, this is the added weight the user could
     lift for a single rep. For other movements, this equals the total 1RM.
+    The exercise must have an RPE.
     '''
     bodyweight = exercise.bodyweight if exercise.bodyweight else 0
     return (exercise.weight + bodyweight) * 36 / (37 - (exercise.reps + (10 - exercise.rpe))) - bodyweight
@@ -67,6 +73,21 @@ def get_exercise_row_snippet(exercise: Exercise) -> str:
         <td>{format(exercise.weight)}</td>
         <td>{format(exercise.rpe)}</td>
     </tr>
+    """
+
+def get_onerepmax_tile(onerepmax: float, bodyweight: float | None) -> str:
+    """Estimated 1RM tile for the load calculator. bodyweight is set for dip-belt movements."""
+    rounded = round(onerepmax * 2) / 2
+    if bodyweight is not None:
+        detail = f'added weight · {format(round((onerepmax + bodyweight) * 2) / 2)} kg with bodyweight'
+    else:
+        detail = 'from your best recent set'
+    return f"""
+        <div class="tile accent">
+            <div class="tile-label">Estimated 1RM</div>
+            <div class="tile-value">{format(rounded)} kg</div>
+            <div class="tile-sub">{detail}</div>
+        </div>
     """
 
 def get_bodyweight_snippet(bodyweight: float) -> str:
@@ -285,6 +306,7 @@ def get_recommendation(*,
     exercises = session.exec(
         select(Exercise)
         .where(Exercise.exercise_name == exercise_name, Exercise.user_id == current_user.id)
+        .where(col(Exercise.rpe).is_not(None))
         .order_by(Exercise.created_at.desc())
         .limit(LOOKBACK_WINDOW)
     ).all()
@@ -307,43 +329,27 @@ def get_recommendation(*,
 
     weight = get_target_weight(onerepmax, reps, bodyweight, rpe)
     return f"""
-    <form hx-post="/exercises/"
+    <div class="tiles">
+        {get_onerepmax_tile(onerepmax, bodyweight)}
+        <div class="tile">
+            <div class="tile-label">Load</div>
+            <div class="tile-value">{format(weight)} kg</div>
+            <div class="tile-sub">for {reps} reps at RPE {format(rpe)}</div>
+        </div>
+    </div>
+    <form class="calc-log" hx-post="/exercises/"
           hx-swap="none"
           hx-on::after-request="if(event.detail.successful) {{ var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); document.body.dispatchEvent(new Event('exercise-logged')); }}">
-        <table>
-            <thead>
-                <tr>
-                    <th>Movement</th>
-                    <th>Sets</th>
-                    <th>Reps</th>
-                    <th>Weight (kg)</th>
-                    <th>RPE</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>{exercise_name}<input type="hidden" name="exercise_name" value="{exercise_name}"></td>
-                    <td>
-                        <input type="number" name="sets" value="{DEFAULT_SETS}"
-                            min="{MIN_SETS}" max="{MAX_SETS}" step="1" style="width: 4rem; margin: 0; padding: 0.25rem;">
-                    </td>
-                    <td>
-                        <input type="number" name="reps" value="{reps}"
-                            min="{MIN_REPS}" max="{MAX_REPS}" step="1" style="width: 4rem; margin: 0; padding: 0.25rem;">
-                    </td>
-                    <td>
-                        <input type="number" name="weight" value="{format(weight)}"
-                            min="0" step="{LIGHTEST_PLATE}" style="width: 5rem; margin: 0; padding: 0.25rem;">
-                    </td>
-                    <td>
-                        <input type="number" name="rpe" value="{format(rpe)}"
-                            min="1" max="10" step="0.5" style="width: 5rem; margin: 0; padding: 0.25rem;">
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+        <p class="calc-hint">Did this set? Adjust and log it:</p>
+        <input type="hidden" name="exercise_name" value="{html.escape(exercise_name, quote=True)}">
+        <div class="calc-grid">
+            <label>Sets <input type="number" name="sets" value="{DEFAULT_SETS}" min="{MIN_SETS}" max="{MAX_SETS}" step="1" inputmode="numeric"></label>
+            <label>Reps <input type="number" name="reps" value="{reps}" min="{MIN_REPS}" max="{MAX_REPS}" step="1" inputmode="numeric"></label>
+            <label>Load (kg) <input type="text" name="weight" value="{format(weight)}" required inputmode="decimal" autocomplete="off"></label>
+            <label>RPE <input type="text" name="rpe" value="{format(rpe)}" required data-min="{MIN_RPE}" data-max="{MAX_RPE}" inputmode="decimal" autocomplete="off"></label>
+        </div>
         <div class="rec-success"></div>
-        <button type="submit">Log</button>
+        <button type="submit" class="secondary outline">Log this set</button>
     </form>
     """
 
@@ -414,13 +420,40 @@ async def api_sync_push(*,
         elif action_type == 'create_movement':
             if not current_user.is_admin:
                 continue
-            existing = session.exec(select(Movement).where(Movement.name == data['name'])).first()
-            if not existing:
-                movement = Movement(name=data['name'], dip_belt=bool(data.get('dip_belt', False)))
-                session.add(movement)
+            try:
+                name = check_new_movement_name(session, data['name'])
+            except InvalidMovementName:
+                continue  # Invalid, or it already exists
+            session.add(Movement(name=name, dip_belt=bool(data.get('dip_belt', False))))
+            session.flush()
 
     session.commit()
     return {"status": "ok", "replayed": len(actions)}
+
+def check_new_movement_name(session: Session, raw_name: str) -> str:
+    """Standard form of a new movement's name. Raises InvalidMovementName if it's invalid or already exists."""
+    name = normalize_movement_name(raw_name)
+    for existing in session.exec(select(Movement.name)).all():
+        try:
+            existing_standard = normalize_movement_name(existing)
+        except InvalidMovementName:
+            existing_standard = existing
+        # Compare standard forms, so "Pull-up" is caught even if an older "Pull up" hasn't been renamed yet.
+        if existing_standard.casefold() == name.casefold():
+            raise InvalidMovementName(f'{existing} already exists.')
+    return name
+
+@app.get('/api/movements/normalize')
+def preview_movement_name(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    name: str = Query(...),
+):
+    """The name a new movement would get, so it can be shown before creating it."""
+    try:
+        return {'name': check_new_movement_name(session, name), 'error': None}
+    except InvalidMovementName as error:
+        return {'name': None, 'error': str(error)}
 
 @app.post('/movements', response_class=HTMLResponse)
 def create_movement(*,
@@ -433,25 +466,23 @@ def create_movement(*,
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
-    movement = session.get(Movement, name)
-    if movement:
+    try:
+        standard_name = check_new_movement_name(session, name)
+    except InvalidMovementName as error:
         return f"""
         <div class="failure-message">
-        <p>Movement {name} already exists</p>
+        <p>{html.escape(str(error))}</p>
         </div>
         """
 
-    movement = Movement(
-        name=name,
-        dip_belt=dip_belt
-    )
-    session.add(movement)
+    session.add(Movement(name=standard_name, dip_belt=dip_belt))
     session.commit()
 
     response.headers["HX-Trigger"] = "movement-created"
+    note = '' if standard_name == name.strip() else f' (standardized from “{html.escape(name.strip())}”)'
     return f"""
     <div class="success-message">
-    <p>Movement {name} successfully created</p>
+    <p>Created {html.escape(standard_name)}{note}</p>
     </div>
     """
 
@@ -472,6 +503,7 @@ def get_progress(*,
         .where(Exercise.user_id == current_user.id)
         .where(Exercise.exercise_name == exercise_name)
         .where(Exercise.created_at >= start_date)
+        .where(col(Exercise.rpe).is_not(None))
         .order_by(Exercise.created_at)
     ).all()
 
@@ -492,3 +524,284 @@ def get_progress(*,
             for day, value in sorted(daily_best.items())
         ]
     }
+
+
+# --- Program (workout days) and workout sessions ---
+
+class SlotIn(BaseModel):
+    """One exercise of a workout day. The movements are alternatives (e.g. row variations)."""
+    movements: list[str] = PydanticField(min_length=1)
+    sets: int = PydanticField(ge=MIN_SETS, le=MAX_SETS)
+    reps: int = PydanticField(ge=MIN_REPS, le=MAX_REPS)
+    rpe_targets: list[float] | None = None # One target per week of the cycle, or None for no RPE
+
+class WorkoutDayIn(BaseModel):
+    name: str = PydanticField(min_length=1, max_length=100)
+    weekday: int | None = PydanticField(default=None, ge=0, le=len(WEEKDAYS) - 1) # 0 = Monday
+    slots: list[SlotIn] = PydanticField(min_length=1)
+
+def validate_slots(session: Session, slots: list[SlotIn]) -> list[dict]:
+    """Check movements and RPE targets, and return the slots as stored in WorkoutDay.slots."""
+    known = set(session.exec(select(Movement.name)).all())
+    result = []
+    for number, slot in enumerate(slots, start=1):
+        movements = list(dict.fromkeys(name.strip() for name in slot.movements if name.strip())) # Drop blanks and duplicates
+        if not movements:
+            raise HTTPException(status_code=422, detail=f'Exercise {number}: choose a movement.')
+        unknown = [name for name in movements if name not in known]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f'Exercise {number}: unknown movement "{unknown[0]}".')
+        rpe_targets = slot.rpe_targets or None
+        if rpe_targets is not None:
+            if len(rpe_targets) != CYCLE_WEEKS:
+                raise HTTPException(status_code=422, detail=f'Exercise {number}: give an RPE target for each of the {CYCLE_WEEKS} weeks.')
+            if any(not MIN_RPE <= rpe <= MAX_RPE for rpe in rpe_targets):
+                raise HTTPException(status_code=422, detail=f'Exercise {number}: RPE targets must be between {MIN_RPE} and {MAX_RPE}.')
+        result.append({'movements': movements, 'sets': slot.sets, 'reps': slot.reps, 'rpe_targets': rpe_targets})
+    return result
+
+def get_user_workout_day(session: Session, user: User, day_id: int) -> WorkoutDay:
+    day = session.get(WorkoutDay, day_id)
+    if not day or day.user_id != user.id:
+        raise HTTPException(status_code=404, detail='Workout day not found')
+    return day
+
+def save_workout_day(session: Session, day: WorkoutDay, data: WorkoutDayIn) -> dict:
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail='Give the workout day a name.')
+    day.slots = validate_slots(session, data.slots)
+    day.name = name
+    day.weekday = data.weekday
+    session.add(day)
+    session.commit()
+    session.refresh(day)
+    return {'status': 'ok', 'id': day.id}
+
+@app.post('/api/workout-days')
+def create_workout_day(*,
+    data: WorkoutDayIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return save_workout_day(session, WorkoutDay(user_id=current_user.id, name=data.name), data)
+
+@app.post('/api/workout-days/{day_id}')
+def update_workout_day(*,
+    day_id: int,
+    data: WorkoutDayIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return save_workout_day(session, get_user_workout_day(session, current_user, day_id), data)
+
+@app.post('/api/workout-days/{day_id}/delete')
+def delete_workout_day(*,
+    day_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    day = get_user_workout_day(session, current_user, day_id)
+    # Keep the logged sessions; they carry their own copy of the day's name.
+    for workout_session in session.exec(select(WorkoutSession).where(WorkoutSession.day_id == day_id)).all():
+        workout_session.day_id = None
+        session.add(workout_session)
+    session.delete(day)
+    session.commit()
+    return {'status': 'ok'}
+
+class SessionEntryIn(BaseModel):
+    movement: str
+    sets: int = PydanticField(ge=MIN_SETS, le=MAX_SETS)
+    reps: int = PydanticField(ge=MIN_REPS, le=MAX_REPS)
+    weight: float
+    rpe: float | None = PydanticField(default=None, ge=MIN_RPE, le=MAX_RPE)
+
+class WorkoutSessionIn(BaseModel):
+    client_id: str = PydanticField(min_length=1, max_length=64)
+    day_id: int
+    cycle: int = PydanticField(ge=1)
+    week: int = PydanticField(ge=1, le=CYCLE_WEEKS)
+    date: date
+    entries: list[SessionEntryIn]
+
+def resolve_movement_name(name: str, movements: dict[str, Movement]) -> str | None:
+    """The existing movement a name refers to, allowing for a since-standardized spelling."""
+    try:
+        target = normalize_movement_name(name).casefold()
+    except InvalidMovementName:
+        return None
+    return next((existing for existing in movements if existing.casefold() == target), None)
+
+def upsert_workout_session(session: Session, user: User, data: WorkoutSessionIn) -> WorkoutSession:
+    '''Create or replace a workout session and its exercises. Does not commit.
+
+    The browser sends the whole session every time an exercise is completed,
+    so replaying the same request (e.g. after being offline) is harmless.
+    '''
+    day = get_user_workout_day(session, user, data.day_id)
+    movements = {movement.name: movement for movement in session.exec(select(Movement)).all()}
+    for entry in data.entries:
+        if entry.movement not in movements:
+            # The movement may have been renamed to its standard form since (rename_movements.py).
+            renamed = resolve_movement_name(entry.movement, movements)
+            if renamed is None:
+                raise HTTPException(status_code=422, detail=f'Unknown movement: {entry.movement}')
+            entry.movement = renamed
+
+    workout_session = session.exec(
+        select(WorkoutSession).where(WorkoutSession.client_id == data.client_id)
+    ).first()
+    if workout_session and workout_session.user_id != user.id:
+        raise HTTPException(status_code=404, detail='Workout session not found')
+    if not workout_session:
+        workout_session = WorkoutSession(client_id=data.client_id, user_id=user.id, day_name=day.name,
+                                         cycle=data.cycle, week=data.week, date=datetime.now(timezone.utc))
+    if workout_session.date.date() != data.date:
+        workout_session.date = datetime.combine(data.date, datetime.now(timezone.utc).time(), tzinfo=timezone.utc)
+    workout_session.day_id = day.id
+    workout_session.day_name = day.name
+    workout_session.cycle = data.cycle
+    workout_session.week = data.week
+    session.add(workout_session)
+    session.flush()
+
+    session.exec(delete(Exercise).where(Exercise.session_id == workout_session.id))
+    bodyweight = session.get(User, user.id).bodyweight
+    for index, entry in enumerate(data.entries):
+        session.add(Exercise(
+            exercise_name=entry.movement,
+            sets=entry.sets,
+            reps=entry.reps,
+            weight=entry.weight,
+            rpe=entry.rpe,
+            bodyweight=bodyweight if movements[entry.movement].dip_belt else None,
+            user_id=user.id,
+            session_id=workout_session.id,
+            # Offset by a second per exercise so they sort in the order they were done.
+            created_at=workout_session.date + timedelta(seconds=index),
+        ))
+    return workout_session
+
+def exercise_to_dict(exercise: Exercise, session_client_ids: dict[int, str] | None = None) -> dict:
+    return {
+        'session_client_id': (session_client_ids or {}).get(exercise.session_id),
+        'movement': exercise.exercise_name,
+        'sets': exercise.sets,
+        'reps': exercise.reps,
+        'weight': exercise.weight,
+        'rpe': exercise.rpe,
+        'bodyweight': exercise.bodyweight,
+        'date': exercise.created_at.isoformat(),
+    }
+
+@app.get('/api/program')
+def get_program(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    '''Everything the session wizard needs, including history to suggest loads (works offline once cached).'''
+    days = session.exec(
+        select(WorkoutDay).where(WorkoutDay.user_id == current_user.id).order_by(WorkoutDay.id)
+    ).all()
+    workout_sessions = session.exec(
+        select(WorkoutSession).where(WorkoutSession.user_id == current_user.id).order_by(WorkoutSession.date)
+    ).all()
+    exercises = session.exec(
+        select(Exercise).where(Exercise.user_id == current_user.id).order_by(Exercise.created_at.desc())
+    ).all()
+
+    session_client_ids = {workout_session.id: workout_session.client_id for workout_session in workout_sessions}
+    entries_by_session: dict[int, list[dict]] = {}
+    recent_by_movement: dict[str, list[dict]] = {}
+    for exercise in exercises:
+        if exercise.session_id is not None:
+            entries_by_session.setdefault(exercise.session_id, []).insert(0, exercise_to_dict(exercise, session_client_ids))
+        recent = recent_by_movement.setdefault(exercise.exercise_name, [])
+        if len(recent) < 4:
+            recent.append(exercise_to_dict(exercise, session_client_ids))
+
+    return {
+        'cycle_weeks': CYCLE_WEEKS,
+        'lightest_plate': LIGHTEST_PLATE,
+        'bodyweight': session.get(User, current_user.id).bodyweight,
+        'is_admin': current_user.is_admin,
+        'movements': {movement.name: {'dip_belt': movement.dip_belt} for movement in session.exec(select(Movement)).all()},
+        'days': [{'id': day.id, 'name': day.name, 'weekday': day.weekday, 'slots': day.slots} for day in days],
+        'sessions': [
+            {
+                'client_id': workout_session.client_id,
+                'day_id': workout_session.day_id,
+                'day_name': workout_session.day_name,
+                'cycle': workout_session.cycle,
+                'week': workout_session.week,
+                'date': workout_session.date.isoformat(),
+                'entries': entries_by_session.get(workout_session.id, []),
+            }
+            for workout_session in workout_sessions
+        ],
+        'recent_by_movement': recent_by_movement,
+    }
+
+@app.get('/api/trends')
+def get_trends(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    days: int = Query(default=180, gt=0, le=730),
+):
+    '''Per-movement trend for the History sparklines, most recently trained first.
+
+    Uses the daily best estimated 1RM (external, like /progress) when the movement
+    has sets with an RPE, otherwise the daily top load.
+    '''
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
+    exercises = session.exec(
+        select(Exercise)
+        .where(Exercise.user_id == current_user.id)
+        .where(Exercise.created_at >= start_date)
+        .order_by(Exercise.created_at)
+    ).all()
+
+    by_movement: dict[str, list[Exercise]] = {}
+    for exercise in exercises:
+        by_movement.setdefault(exercise.exercise_name, []).append(exercise)
+
+    trends = []
+    for name, movement_exercises in by_movement.items():
+        with_rpe = [exercise for exercise in movement_exercises if exercise.rpe is not None]
+        metric = 'e1rm' if with_rpe else 'load'
+        daily_best: dict[date, float] = {}
+        for exercise in with_rpe or movement_exercises:
+            day = exercise.created_at.date()
+            value = get_onerepmax(exercise) if metric == 'e1rm' else exercise.weight
+            daily_best[day] = max(value, daily_best.get(day, value))
+        points = [{'date': day.isoformat(), 'value': round(value, 1)} for day, value in sorted(daily_best.items())]
+        trends.append({'movement': name, 'metric': metric, 'points': points})
+    trends.sort(key=lambda trend: trend['points'][-1]['date'], reverse=True)
+    return {'days': days, 'trends': trends}
+
+@app.post('/api/workout-sessions')
+def post_workout_session(*,
+    data: WorkoutSessionIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    workout_session = upsert_workout_session(session, current_user, data)
+    session.commit()
+    return {'status': 'ok', 'client_id': workout_session.client_id}
+
+@app.post('/api/workout-sessions/{client_id}/delete')
+def delete_workout_session(*,
+    client_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    workout_session = session.exec(
+        select(WorkoutSession).where(WorkoutSession.client_id == client_id)
+    ).first()
+    if not workout_session or workout_session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail='Workout session not found')
+    session.exec(delete(Exercise).where(Exercise.session_id == workout_session.id))
+    session.delete(workout_session)
+    session.commit()
+    return {'status': 'ok'}

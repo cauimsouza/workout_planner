@@ -1,8 +1,13 @@
-const CACHE_NAME = 'workout-tracker-v1';
+const CACHE_NAME = 'workout-tracker-v4';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
-    '/static/icon.png',
+    '/static/logo.svg',
+    '/static/apple-touch-icon.png',
+    '/static/fonts/inter-latin-variable.woff2',
+    '/static/offline.js',
+    '/static/workout.js',
+    '/static/program.js',
 ];
 const CDN_ASSETS = [
     'https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css',
@@ -30,9 +35,15 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch: network-first for app routes, cache-first for static assets
+// Fetch: network-first for same-origin pages, assets and data; cache-first for CDN assets
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
+
+    // JSON API writes go straight to the network: their callers handle failures themselves
+    // (a fake success here would make them think offline data had been uploaded).
+    if (url.pathname.startsWith('/api/') && event.request.method !== 'GET') {
+        return;
+    }
 
     // POST/PUT: handle offline writes
     if (event.request.method === 'POST' || event.request.method === 'PUT') {
@@ -54,21 +65,18 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets: cache-first
-    if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.json') {
-        event.respondWith(
-            caches.match(event.request).then((cached) => cached || fetch(event.request))
-        );
-        return;
-    }
-
-    // App shell (root page): network-first, fallback to cache
-    if (url.pathname === '/') {
+    // App shell, static assets and the program data for the workout wizard:
+    // network-first so updates show up immediately, falling back to the cache offline.
+    if (url.pathname === '/' || url.pathname.startsWith('/static/') ||
+        url.pathname === '/manifest.json' || url.pathname === '/api/program' ||
+        url.pathname === '/api/trends') {
         event.respondWith(
             fetch(event.request)
                 .then((response) => {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                    if (response.ok) {
+                        const clone = response.clone();
+                        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                    }
                     return response;
                 })
                 .catch(() => caches.match(event.request))
@@ -141,19 +149,15 @@ function htmlResponse(html) {
 }
 
 function formatNumber(n) {
+    if (n === null || n === undefined) return '\u2014';
     return parseFloat(n.toFixed(10)).toString();
 }
 
+// "4 Nov 2026", matching format_date in app.py
 function formatDate(isoString) {
     const d = new Date(isoString);
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const mon = months[d.getUTCMonth()];
-    if (d.getUTCFullYear() === new Date().getFullYear()) {
-        return `${day} ${mon}`;
-    }
-    const year = String(d.getUTCFullYear()).slice(-2);
-    return `${day} ${mon} ${year}`;
+    return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 // --- Offline response generators ---
@@ -318,6 +322,7 @@ async function handleOfflineCreateExercise(db, form) {
     const exercise = {
         id: 'offline_' + Date.now(),
         exercise_name: form.exercise_name,
+        sets: parseInt(form.sets || '3'),
         reps: parseInt(form.reps),
         weight: parseFloat(form.weight),
         rpe: parseFloat(form.rpe),
@@ -330,6 +335,7 @@ async function handleOfflineCreateExercise(db, form) {
         type: 'create_exercise',
         data: {
             exercise_name: exercise.exercise_name,
+            sets: exercise.sets,
             reps: exercise.reps,
             weight: exercise.weight,
             rpe: exercise.rpe,
@@ -409,7 +415,7 @@ async function handleOfflineRecommendation(db, form) {
     // Find last exercise for this movement
     const allExercises = await getAll(db, 'exercises');
     const matchingExercises = allExercises
-        .filter((e) => e.exercise_name === exerciseName)
+        .filter((e) => e.exercise_name === exerciseName && e.rpe !== null)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     if (!matchingExercises.length) {
@@ -439,33 +445,37 @@ async function handleOfflineRecommendation(db, form) {
     const weight = totalWeight - bodyweight;
     const weightRounded = Math.round(weight / 1.25) * 1.25;
 
+    // Same layout as the end of get_recommendation in app.py. onerepmax here includes bodyweight.
+    const round = (n) => Math.round(n * 2) / 2;
+    const attr = (value) => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     return htmlResponse(`
-        <form hx-post="/exercises/"
+        <div class="tiles">
+            <div class="tile accent">
+                <div class="tile-label">Estimated 1RM</div>
+                <div class="tile-value">${formatNumber(round(onerepmax - bodyweight))} kg</div>
+                <div class="tile-sub">${movement.dip_belt
+                    ? `added weight · ${formatNumber(round(onerepmax))} kg with bodyweight`
+                    : 'from your last set'}</div>
+            </div>
+            <div class="tile">
+                <div class="tile-label">Load</div>
+                <div class="tile-value">${formatNumber(weightRounded)} kg</div>
+                <div class="tile-sub">for ${targetReps} reps at RPE ${formatNumber(targetRpe)}</div>
+            </div>
+        </div>
+        <form class="calc-log" hx-post="/exercises/"
               hx-swap="none"
               hx-on::after-request="if(event.detail.successful) { var el = this.querySelector('.rec-success'); el.innerHTML = '<div class=\\'success-message\\'>Exercise logged successfully!</div>'; setTimeout(() => el.innerHTML = '', 3000); }">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Movement</th>
-                        <th>Reps</th>
-                        <th>Weight (kg)</th>
-                        <th>RPE</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>${exerciseName}<input type="hidden" name="exercise_name" value="${exerciseName}"></td>
-                        <td>${targetReps}<input type="hidden" name="reps" value="${targetReps}"></td>
-                        <td>${formatNumber(weightRounded)}<input type="hidden" name="weight" value="${weightRounded}"></td>
-                        <td>
-                            <input type="number" name="rpe" value="${formatNumber(targetRpe)}"
-                                min="1" max="10" step="0.5" style="width: 5rem; margin: 0; padding: 0.25rem;">
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+            <p class="calc-hint">Did this set? Adjust and log it:</p>
+            <input type="hidden" name="exercise_name" value="${attr(exerciseName)}">
+            <div class="calc-grid">
+                <label>Sets <input type="number" name="sets" value="3" min="1" max="10" step="1" inputmode="numeric"></label>
+                <label>Reps <input type="number" name="reps" value="${targetReps}" min="1" max="20" step="1" inputmode="numeric"></label>
+                <label>Load (kg) <input type="text" name="weight" value="${weightRounded}" required inputmode="decimal" autocomplete="off"></label>
+                <label>RPE <input type="text" name="rpe" value="${formatNumber(targetRpe)}" required data-min="6" data-max="10" inputmode="decimal" autocomplete="off"></label>
+            </div>
             <div class="rec-success"></div>
-            <button type="submit">Log</button>
+            <button type="submit" class="secondary outline">Log this set</button>
         </form>
     `);
 }
