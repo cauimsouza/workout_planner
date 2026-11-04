@@ -8,7 +8,7 @@ from pathlib import Path
 from auth import verify_cf_access_token
 from models import Exercise, Movement, User, WorkoutDay, WorkoutSession
 from movement_names import InvalidMovementName, normalize_movement_name
-from movements import add_movement, find_existing, rename_movement, resolve_movement, usage
+from movements import CannotDelete, add_movement, delete_movement, find_existing, rename_movement, resolve_movement, usage
 from database import create_db_and_tables, engine
 
 MIN_REPS = 1
@@ -165,7 +165,7 @@ def get_root(current_user: User = Depends(get_current_user)):
     html = versioned_scripts(html_path.read_text())
     if not current_user.is_admin:
         html = re.sub(
-            r'<!-- BEGIN Create Movement -->.*?<!-- END Create Movement -->',
+            r'<!-- BEGIN Admin -->.*?<!-- END Admin -->',
             '',
             html,
             flags=re.DOTALL,
@@ -551,36 +551,46 @@ def post_movement_rename(*,
     session.commit()
     return {'status': 'ok', 'name': name, 'merged': existing is not None}
 
-@app.post('/movements', response_class=HTMLResponse)
-def create_movement(*,
-    response: Response,
+class MovementDeleteIn(BaseModel):
+    name: str
+
+@app.post('/api/movements/delete')
+def post_movement_delete(*,
+    data: MovementDeleteIn,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    name: str = Form(...),
-    dip_belt: bool = Form(default=False)
 ):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
-
+    """Delete a movement nobody has logged, removing it from workout days (see movements.delete_movement)."""
+    require_admin(current_user)
+    days = usage(session, data.name)['workout_day_names'] if session.get(Movement, data.name) else []
     try:
-        standard_name = check_new_movement_name(session, name)
-    except InvalidMovementName as error:
-        return f"""
-        <div class="failure-message">
-        <p>{html.escape(str(error))}</p>
-        </div>
-        """
-
-    add_movement(session, standard_name, dip_belt)
+        delete_movement(session, data.name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail='Movement not found')
+    except CannotDelete as error:
+        raise HTTPException(status_code=409, detail=str(error))
     session.commit()
+    return {'status': 'ok', 'removed_from': days}
 
-    response.headers["HX-Trigger"] = "movement-created"
-    note = '' if standard_name == name.strip() else f' (standardized from “{html.escape(name.strip())}”)'
-    return f"""
-    <div class="success-message">
-    <p>Created {html.escape(standard_name)}{note}</p>
-    </div>
-    """
+class MovementCreateIn(BaseModel):
+    name: str
+    dip_belt: bool = False
+
+@app.post('/api/movements')
+def post_movement(*,
+    data: MovementCreateIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a movement under the standard form of its name (admins)."""
+    require_admin(current_user)
+    try:
+        name = check_new_movement_name(session, data.name)
+    except InvalidMovementName as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    add_movement(session, name, data.dip_belt)
+    session.commit()
+    return {'status': 'ok', 'name': name}
 
 @app.get('/progress')
 def get_progress(*,
@@ -715,7 +725,7 @@ class SessionEntryIn(BaseModel):
 
 class WorkoutSessionIn(BaseModel):
     client_id: str = PydanticField(min_length=1, max_length=64)
-    day_id: int
+    day_id: int | None = None # None only when editing a logged session whose workout day was deleted
     cycle: int = PydanticField(ge=1)
     week: int = PydanticField(ge=1, le=CYCLE_WEEKS)
     date: date
@@ -727,28 +737,34 @@ def upsert_workout_session(session: Session, user: User, data: WorkoutSessionIn)
     The browser sends the whole session every time an exercise is completed,
     so replaying the same request (e.g. after being offline) is harmless.
     '''
-    day = get_user_workout_day(session, user, data.day_id)
+    day = get_user_workout_day(session, user, data.day_id) if data.day_id is not None else None
     movements = {movement.name: movement for movement in session.exec(select(Movement)).all()}
+    entries = []
     for entry in data.entries:
         if entry.movement not in movements:
             # The movement may have been renamed since the session was recorded.
             renamed = resolve_movement(session, entry.movement)
             if renamed is None:
-                raise HTTPException(status_code=422, detail=f'Unknown movement: {entry.movement}')
+                # Deleted since (or unknown): skip that exercise rather than lose the whole session.
+                continue
             entry.movement = renamed
+        entries.append(entry)
 
     workout_session = session.exec(
         select(WorkoutSession).where(WorkoutSession.client_id == data.client_id)
     ).first()
     if workout_session and workout_session.user_id != user.id:
         raise HTTPException(status_code=404, detail='Workout session not found')
+    if day is None and workout_session is None:
+        raise HTTPException(status_code=422, detail='A new session needs its workout day.')
     if not workout_session:
         workout_session = WorkoutSession(client_id=data.client_id, user_id=user.id, day_name=day.name,
                                          cycle=data.cycle, week=data.week, date=datetime.now(timezone.utc))
     if workout_session.date.date() != data.date:
         workout_session.date = datetime.combine(data.date, datetime.now(timezone.utc).time(), tzinfo=timezone.utc)
-    workout_session.day_id = day.id
-    workout_session.day_name = day.name
+    if day is not None:  # Otherwise the session keeps the name of its deleted workout day
+        workout_session.day_id = day.id
+        workout_session.day_name = day.name
     workout_session.cycle = data.cycle
     workout_session.week = data.week
     session.add(workout_session)
@@ -756,7 +772,7 @@ def upsert_workout_session(session: Session, user: User, data: WorkoutSessionIn)
 
     session.exec(delete(Exercise).where(Exercise.session_id == workout_session.id))
     bodyweight = session.get(User, user.id).bodyweight
-    for index, entry in enumerate(data.entries):
+    for index, entry in enumerate(entries):
         session.add(Exercise(
             exercise_name=entry.movement,
             sets=entry.sets,

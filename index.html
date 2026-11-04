@@ -229,7 +229,7 @@
             box-shadow: var(--shadow);
             overflow: hidden;
         }
-        .link-list a {
+        .link-list a, .link-list button {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -239,13 +239,32 @@
             text-decoration: none;
             border-bottom: 1px solid var(--line);
         }
-        .link-list a:last-child {
+        .link-list a:last-child, .link-list button:last-child {
             border-bottom: none;
+        }
+        .link-list button {
+            width: 100%;
+            margin: 0;
+            border: none;
+            border-bottom: 1px solid var(--line);
+            border-radius: 0;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            font-weight: inherit;
+            box-shadow: none;
+        }
+        .link-list button:hover, .link-list button:focus {
+            background: var(--surface-2);
+            color: inherit;
+        }
+        .link-list button:active {
+            background: var(--surface-2);
         }
         .link-list a:hover {
             background: var(--surface-2);
         }
-        .link-list a > span:last-child {
+        .link-list a > span:last-child, .link-list button > span:last-child {
             color: var(--muted);
             font-size: 1.4rem;
             line-height: 1;
@@ -571,6 +590,27 @@
         .wz-date-label {
             font-size: 0.85rem;
             color: var(--muted);
+        }
+        /* "Edit session" on the start screen: an outlined button, so it doesn't look like starting a new session */
+        .wz-primary.edit-mode, .wz-primary.edit-mode:hover, .wz-primary.edit-mode:focus {
+            background: var(--surface);
+            color: var(--accent);
+            border: 1.5px solid var(--accent);
+        }
+        .wz-logged-note {
+            margin: 0 0 0.25rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        .wz-logged-detail {
+            color: var(--muted);
+            font-size: 0.85rem;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .history-actions {
+            display: flex;
+            gap: 0.5rem;
         }
         .wz-preview {
             list-style: none;
@@ -906,7 +946,7 @@
         /* ---------- Session focus mode ---------- */
         /* While a session runs on the Workout page, the tab bar gives way to a bar with Back/Skip/Next. */
         body.in-session[data-page="workout"] .tab-bar,
-        body.in-session .link-list {
+        body.in-session [data-tab="workout"] .link-list {
             display: none;
         }
         body.in-session[data-page="workout"] main.app {
@@ -1511,15 +1551,30 @@
             margin-bottom: 0;
         }
         .movement-editor-switch {
-            margin-top: 0.75rem;
+            margin: 0.75rem 0 1rem;
         }
         .movement-editor-usage {
             font-size: 0.85rem;
         }
+        .movement-editor-delete {
+            margin-top: 1rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--line);
+            text-align: center;
+        }
+        .link-button.danger-link {
+            color: var(--err);
+            font-weight: 600;
+        }
+        .link-button.danger-link:disabled {
+            color: var(--muted);
+            opacity: 0.6;
+            text-decoration: none;
+        }
 
         /* Touch screens (iPhone): hover styles stick after a tap, so undo them. */
         @media (hover: none) {
-            .link-list a:hover { background: transparent; }
+            .link-list a:hover, .link-list button:hover { background: transparent; }
             .link-list a:active { background: var(--surface-2); }
             .day-option:not([aria-pressed="true"]):hover { border-color: var(--line); }
             .week-seg:not(.selected):not(.done):hover { border-color: var(--line); }
@@ -1585,7 +1640,7 @@
                             Movement
                             <select id="exercise_name" name="exercise_name" required
                                     hx-get="/movements"
-                                    hx-trigger="load, movement-created from:body"
+                                    hx-trigger="load, movements-changed from:body"
                                     hx-swap="innerHTML">
                                 <option value="">Loading movements...</option>
                             </select>
@@ -1626,7 +1681,7 @@
                         Movement
                         <select name="exercise_name" required
                                 hx-get="/movements"
-                                hx-trigger="load, movement-created from:body"
+                                hx-trigger="load, movements-changed from:body"
                                 hx-target="this"
                                 hx-swap="innerHTML">
                             <option value="">Loading movements...</option>
@@ -1681,7 +1736,7 @@
                         Movement
                         <select id="progress-exercise"
                             hx-get="/movements"
-                            hx-trigger="load, movement-created from:body"
+                            hx-trigger="load, movements-changed from:body"
                             hx-swap="innerHTML">
                             <option value="">Loading movements...</option>
                         </select>
@@ -1720,29 +1775,20 @@
             </div>
 
             <!-- Admins only: get_root in app.py removes everything between these two markers for other users. -->
-            <!-- BEGIN Create Movement -->
+            <!-- BEGIN Admin -->
             <h2 class="section-title">Movements</h2>
-            <button type="button" class="add-button" id="edit-movement-button">Rename or edit a movement</button>
-            <h2 class="section-title">Create movement</h2>
-            <article>
-                <form hx-post="/movements"
-                      hx-target="#create-movement-result"
-                      hx-swap="innerHTML"
-                      hx-on:movement-created="this.reset(); setTimeout(() => document.getElementById('create-movement-result').innerHTML = '', 3000);">
-                    <label>
-                        Name
-                        <input type="text" id="name" name="name" required placeholder="e.g., Pull-up" autocomplete="off">
-                        <small>Names are written in a standard form: “pull up” becomes “Pull-up”, “Cable Seated Row” becomes “Cable seated row”.</small>
-                    </label>
-                    <label>
-                        <input type="checkbox" role="switch" id="dip_belt" name="dip_belt">
-                        Dip belt (load is added to bodyweight)
-                    </label>
-                    <button type="submit">Create</button>
-                </form>
-                <div id="create-movement-result"></div>
-            </article>
-            <!-- END Create Movement -->
+            <!-- Both open a sheet from static/program.js -->
+            <nav class="link-list" aria-label="Movements">
+                <button type="button" id="edit-movement-button">
+                    <span><strong>Edit a movement</strong><small>Rename, fix dip belt, or delete</small></span>
+                    <span aria-hidden="true">›</span>
+                </button>
+                <button type="button" id="create-movement-button">
+                    <span><strong>Create a movement</strong><small>Add a movement to use in your program</small></span>
+                    <span aria-hidden="true">›</span>
+                </button>
+            </nav>
+            <!-- END Admin -->
         </section>
 
         <!-- ===== Profile (opened from the top bar) ===== -->

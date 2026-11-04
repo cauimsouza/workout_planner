@@ -46,7 +46,8 @@ the weight on the belt.
 - **Guided sessions:** one exercise per screen with the target, last time, suggested load, and
   +/− steppers for sets, reps, load and RPE. Back/Skip/Next stay within thumb reach. Each step is
   saved as you go, and a summary at the end compares your loads with the reference session and
-  marks new best estimated 1RMs.
+  marks new best estimated 1RMs. Picking a week you've already logged shows what you did, with an
+  **Edit session** button; sessions can also be edited from History.
 - **Program editor:** workout days as cards. Movements come from a searchable list, so names can't
   be mistyped; each exercise has sets × reps and RPE per week. Days can be duplicated, which is
   handy for a new cycle.
@@ -58,7 +59,7 @@ the weight on the belt.
 - **Phone-friendly:** home-screen install (iPhone and Android), light/dark theme, decimal commas
   accepted, no zooming into fields.
 - **Multiple users:** each person logged in through Cloudflare Access has their own program and
-  history. Movements are shared, and only admins can create them.
+  history. Movements are shared, and only admins can create, edit or delete them.
 
 ## Deploying
 
@@ -149,14 +150,21 @@ Movement names have a standard form (rules in [`movement_names.py`](movement_nam
 - hyphenated "-up" movements: *Pull-up*, *Chin-up*, *Muscle-up*;
 - tidy spacing: *Weighted muscle-up (swing back)*.
 
-New movements are converted automatically ("pull up" becomes *Pull-up*), and a name that matches an
-existing movement apart from formatting is refused.
+Admins manage movements in **Program → Movements**:
 
-**Renaming a movement.** Admins can fix a typo or shorten a name in **Program → Rename or edit a
-movement**: pick the movement, type the new name, and save. Its dip-belt setting can be changed in
-the same place. The new name is applied everywhere: every user's logged exercises and every workout
+- **Create a movement:** type the name, which is shown in its standard form as you type ("pull up"
+  becomes *Pull-up*), and say whether it's a dip-belt movement. A name that matches an existing
+  movement apart from formatting is refused. Movements can also be created straight from the
+  movement search while editing a workout day.
+- **Edit a movement:** pick the movement, then rename it, fix its dip-belt setting, or delete it.
+
+**Renaming** fixes a typo or shortens a name. The new name is applied everywhere: every user's logged exercises and every workout
 day. Renaming to the name of another movement merges the two, after you confirm. The old name keeps
 working for sessions that phones recorded before the rename and upload later.
+
+**Deleting** is for movements nobody has logged yet (e.g. one created by mistake). It's also removed from any workout days that use it. A movement
+with logged exercises can't be deleted, because that would erase history; merge it into the right
+movement by renaming it instead.
 
 To bring all older names in line at once:
 

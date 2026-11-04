@@ -19,6 +19,9 @@
     const fmt = (value) => app().fmt(value);
     const weeks = () => (data() ? data().cycle_weeks : 4);
 
+    // RPE targets filled in when an exercise is switched to "RPE per week" (lightest week first).
+    const DEFAULT_RPE_TARGETS = ['6.5', '7', '8', '8'];
+
     let editing = null; // Workout day being edited: { id, name, weekday, slots: [...] }
     let dirty = false;
     let message = null; // { text, kind: 'ok' | 'error' } shown above the list or in the editor
@@ -160,7 +163,7 @@
         if (slot.rpeMode === 'week') {
             rpeInputs = `<div class="rpe-weeks">${slot.rpeWeeks.map((value, w) => `
                 <label class="rpe-field">W${w + 1}
-                    <input type="text" inputmode="decimal" data-min="6" data-max="10" autocomplete="off" placeholder="${[7, 7.5, 8, 8.5][w] ?? 8}"
+                    <input type="text" inputmode="decimal" data-min="6" data-max="10" autocomplete="off" placeholder="${DEFAULT_RPE_TARGETS[w] ?? 8}"
                            data-rpe-week="${i}:${w}" value="${esc(value)}">
                 </label>`).join('')}</div>`;
         }
@@ -279,7 +282,11 @@
         root.querySelectorAll('[data-rpe-mode]').forEach((button) => {
             button.addEventListener('click', () => {
                 const [i, mode] = at(button.dataset.rpeMode);
-                editing.slots[i].rpeMode = mode; // Typed values are kept if you switch back
+                const slot = editing.slots[i];
+                slot.rpeMode = mode; // Typed values are kept if you switch back
+                if (mode === 'week' && slot.rpeWeeks.every((value) => !value.trim())) {
+                    slot.rpeWeeks = slot.rpeWeeks.map((_, w) => DEFAULT_RPE_TARGETS[w] ?? DEFAULT_RPE_TARGETS[DEFAULT_RPE_TARGETS.length - 1]);
+                }
                 changed();
                 render();
             });
@@ -529,21 +536,26 @@
         const sheet = pickerElement();
         const name = previewName;
         if (!name) return;
-        const form = new FormData();
-        form.append('name', name);
-        if (sheet.querySelector('#picker-dip-belt').checked) form.append('dip_belt', 'true');
-        try {
-            await fetch('/movements', { method: 'POST', body: form });
-        } catch (e) { /* Checked below */ }
-        await app().refresh();
-        if (data().movements[name]) {
-            pick(name);
-        } else {
-            sheet.querySelector('#picker-create-button').textContent = `Couldn't create “${name}”. Are you online?`;
+        const [created, failure] = await send('/api/movements', { name, dip_belt: sheet.querySelector('#picker-dip-belt').checked });
+        if (failure) {
+            const hint = sheet.querySelector('#picker-create-hint');
+            hint.textContent = failure;
+            hint.className = 'picker-hint error';
+            return;
         }
+        await movementsChanged();
+        pick(created.name);
     }
 
-    // --- Edit a movement (admins): rename, fix dip belt, merge duplicates ---
+    // After creating, renaming or deleting a movement: reload the program data, and let the
+    // movement dropdowns elsewhere on the page (hx-trigger="movements-changed") reload too.
+    async function movementsChanged() {
+        await app().refresh();
+        document.body.dispatchEvent(new Event('movements-changed'));
+    }
+
+    // --- Create or edit a movement (admins): name, dip belt, merge duplicates, delete ---
+    // One sheet for both. Creating: data-old is empty. Editing: data-old is the current name.
 
     function movementEditorElement() {
         let sheet = document.getElementById('movement-editor');
@@ -569,6 +581,10 @@
                     <button type="button" class="secondary outline" id="movement-editor-cancel">Cancel</button>
                     <button type="button" id="movement-editor-save">Save</button>
                 </div>
+                <div class="movement-editor-delete" id="movement-editor-delete-section">
+                    <button type="button" class="link-button danger-link" id="movement-editor-delete">Delete movement</button>
+                    <small class="picker-hint" id="movement-editor-delete-hint"></small>
+                </div>
             </div>`;
         document.body.appendChild(sheet);
         const close = () => { sheet.hidden = true; document.body.classList.remove('sheet-open'); };
@@ -580,6 +596,7 @@
             previewRename();
         });
         sheet.querySelector('#movement-editor-save').addEventListener('click', saveMovement);
+        sheet.querySelector('#movement-editor-delete').addEventListener('click', deleteMovement);
         document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !sheet.hidden) close(); });
         return sheet;
     }
@@ -593,25 +610,96 @@
 
     async function openMovementEditor(name) {
         const sheet = movementEditorElement();
-        sheet.dataset.old = name;
+        const creating = !name;
+        sheet.dataset.old = name || '';
         sheet.dataset.merge = '';
-        sheet.querySelector('#movement-editor-name').value = name;
+        sheet.querySelector('#movement-editor-title').textContent = creating ? 'New movement' : 'Edit movement';
+        sheet.querySelector('#movement-editor-delete-section').hidden = creating;
+        sheet.querySelector('#movement-editor-usage').hidden = creating;
+        sheet.querySelector('#movement-editor-name').placeholder = creating ? 'e.g. Pull-up' : '';
+        sheet.querySelector('#movement-editor-name').value = name || '';
         sheet.querySelector('#movement-editor-dip-belt').checked = Boolean(data().movements[name] && data().movements[name].dip_belt);
         sheet.querySelector('#movement-editor-dip-belt').disabled = false;
         sheet.querySelector('#movement-editor-hint').textContent = '';
         sheet.querySelector('#movement-editor-error').hidden = true;
-        sheet.querySelector('#movement-editor-save').textContent = 'Save';
-        sheet.querySelector('#movement-editor-save').disabled = false;
+        sheet.querySelector('#movement-editor-save').textContent = creating ? 'Create' : 'Save';
+        sheet.querySelector('#movement-editor-save').disabled = creating; // Enabled once a valid name is typed
+        if (creating) {
+            sheet.hidden = false;
+            document.body.classList.add('sheet-open');
+            sheet.querySelector('#movement-editor-name').focus();
+            return;
+        }
         const usageLine = sheet.querySelector('#movement-editor-usage');
         usageLine.textContent = '';
+        const deleteButton = sheet.querySelector('#movement-editor-delete');
+        const deleteHint = sheet.querySelector('#movement-editor-delete-hint');
+        deleteButton.disabled = true;
+        deleteHint.textContent = '';
+        sheet.dataset.usage = '';
         sheet.hidden = false;
         document.body.classList.add('sheet-open');
         try {
             const response = await fetch(`/api/movements/usage?name=${encodeURIComponent(name)}`);
             if (response.ok) {
-                usageLine.textContent = `Used in ${usageText(await response.json())}, across all users. A new name is applied to all of them.`;
+                const counts = await response.json();
+                sheet.dataset.usage = JSON.stringify(counts);
+                usageLine.textContent = `Used in ${usageText(counts)}, across all users. A new name is applied to all of them.`;
+                // Deleting would erase history, so it's only offered for movements nobody has logged.
+                if (counts.exercises > 0) {
+                    deleteHint.textContent = 'Can\'t be deleted: it has logged exercises. To get rid of it, rename it to the movement it should be, and the two are merged.';
+                } else {
+                    deleteButton.disabled = false;
+                    deleteHint.textContent = counts.workout_days
+                        ? `Deleting also removes it from ${counts.workout_day_names.join(', ')}.` : '';
+                }
             }
         } catch (e) { /* Offline: saving will say so */ }
+    }
+
+    async function createFromEditor(sheet) {
+        const errorBox = sheet.querySelector('#movement-editor-error');
+        const [created, failure] = await send('/api/movements', {
+            name: sheet.querySelector('#movement-editor-name').value.trim(),
+            dip_belt: sheet.querySelector('#movement-editor-dip-belt').checked,
+        });
+        if (failure) {
+            errorBox.textContent = failure;
+            errorBox.hidden = false;
+            return;
+        }
+        sheet.hidden = true;
+        document.body.classList.remove('sheet-open');
+        message = { text: `Created ${created.name}`, kind: 'ok' };
+        await movementsChanged();
+        render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function deleteMovement() {
+        const sheet = movementEditorElement();
+        const name = sheet.dataset.old;
+        const counts = sheet.dataset.usage ? JSON.parse(sheet.dataset.usage) : { workout_day_names: [] };
+        const where = counts.workout_day_names.length ? ` It will be removed from ${counts.workout_day_names.join(', ')}.` : '';
+        if (!confirm(`Delete ${name}?${where}`)) return;
+        const errorBox = sheet.querySelector('#movement-editor-error');
+        const [, failure] = await send('/api/movements/delete', { name });
+        if (failure) {
+            errorBox.textContent = failure;
+            errorBox.hidden = false;
+            return;
+        }
+        sheet.hidden = true;
+        document.body.classList.remove('sheet-open');
+        // Keep a workout day being edited in step: drop the movement, and exercises left without one.
+        if (editing) {
+            for (const slot of editing.slots) slot.movements = slot.movements.filter((m) => m !== name);
+            editing.slots = editing.slots.filter((slot) => slot.movements.length);
+        }
+        message = { text: `Deleted ${name}`, kind: 'ok' };
+        await movementsChanged();
+        render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     // Show the standard form of the new name, and whether it would merge into another movement.
@@ -627,12 +715,20 @@
         clearTimeout(renameTimer);
         renameTimer = setTimeout(async () => {
             try {
-                const response = await fetch(`/api/movements/normalize?name=${encodeURIComponent(typed)}&renaming=${encodeURIComponent(old)}`);
+                const query = `name=${encodeURIComponent(typed)}${old ? `&renaming=${encodeURIComponent(old)}` : ''}`;
+                const response = await fetch(`/api/movements/normalize?${query}`);
                 const result = await response.json();
                 if (sheet.querySelector('#movement-editor-name').value.trim() !== typed) return; // Typed on since
-                save.textContent = 'Save';
+                save.textContent = old ? 'Save' : 'Create';
                 dipBelt.disabled = false;
-                if (result.existing) {
+                if (!typed) {
+                    hint.textContent = '';
+                    save.disabled = true;
+                } else if (result.existing && !old) {
+                    hint.textContent = `${result.existing} already exists.`;
+                    hint.className = 'picker-hint error';
+                    save.disabled = true;
+                } else if (result.existing) {
                     hint.textContent = `${result.existing} already exists. Saving merges ${old} into it, together with its history.`;
                     hint.className = 'picker-hint warn';
                     save.textContent = 'Merge';
@@ -660,6 +756,10 @@
         const old = sheet.dataset.old;
         const save = sheet.querySelector('#movement-editor-save');
         const errorBox = sheet.querySelector('#movement-editor-error');
+        if (!old) {
+            await createFromEditor(sheet);
+            return;
+        }
         const payload = {
             old_name: old,
             new_name: sheet.querySelector('#movement-editor-name').value.trim(),
@@ -703,14 +803,17 @@
             text: body.merged ? `Merged ${old} into ${body.name}` : body.name !== old ? `Renamed ${old} to ${body.name}` : `Saved ${body.name}`,
             kind: 'ok',
         };
-        await app().refresh();
+        await movementsChanged();
         render();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     document.addEventListener('click', (event) => {
-        if (!event.target.closest('#edit-movement-button')) return;
-        openPicker('', (name) => openMovementEditor(name), { title: 'Edit which movement?', allowCreate: false });
+        if (event.target.closest('#edit-movement-button')) {
+            openPicker('', (name) => openMovementEditor(name), { title: 'Edit which movement?', allowCreate: false });
+        } else if (event.target.closest('#create-movement-button')) {
+            openMovementEditor(null);
+        }
     });
 
     // --- Startup ---

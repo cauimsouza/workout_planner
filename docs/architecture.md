@@ -10,7 +10,7 @@ deploy it, see the [README](../readme.md).
   It mixes two styles:
   - the newer parts are plain JavaScript that render from JSON: the session wizard, history and
     program editor;
-  - the older forms (log an exercise, load calculator, bodyweight, create movement) use
+  - the older forms (log an exercise, load calculator, bodyweight) use
     [HTMX](https://htmx.org) and get HTML fragments from the server.
 - **Styling:** [Pico CSS](https://picocss.com) with the app's own theme on top, and the Inter font
   bundled in `static/fonts/`.
@@ -29,11 +29,11 @@ deploy it, see the [README](../readme.md).
 | `database.py` | Engine, seeding of default movements, startup migration of older databases |
 | `auth.py` | Cloudflare Access JWT verification |
 | `movement_names.py` | Standard form for movement names, used when creating and renaming movements |
-| `movements.py` | Renaming and merging movements, and finding a movement from an out-of-date name (shared by the app and the tool below) |
+| `movements.py` | Renaming, merging and deleting movements, and finding a movement from an out-of-date name (shared by the app and the tool below) |
 | `rename_movements.py` | Command-line tool that renames existing movements to the standard form |
 | `index.html` | Page layout, all CSS, tab routing, theme switching, date and decimal field helpers, progress chart, HTMX forms |
 | `static/workout.js` | Session wizard, History (cycle overview, sessions, trends) and the upload queue for sessions |
-| `static/program.js` | Program editor, the movement picker, and renaming movements |
+| `static/program.js` | Program editor, the movement picker, and renaming or deleting movements |
 | `static/offline.js` | Registers the service worker, caches data in IndexedDB, replays offline writes from the HTMX forms |
 | `sw.js` | Service worker: caching, plus offline answers for the HTMX endpoints |
 | `manifest.json`, `static/*.png`, `static/logo.svg` | Home-screen install and icons |
@@ -84,6 +84,8 @@ There are two mechanisms, one per frontend style.
   browser comes back online.
 - **Renamed movements:** the server maps former names (`movementalias`) and other spellings of a
   name to the current movement, so sessions recorded before a rename still upload.
+- **Deleted movements:** an exercise whose movement no longer exists is skipped, and the rest of
+  the session is saved.
 
 **HTMX forms (`sw.js`, `static/offline.js`).**
 
@@ -115,11 +117,13 @@ All routes need a logged-in user (Cloudflare Access).
 | `POST /api/workout-days` | Create a workout day: `{name, weekday, slots}` |
 | `POST /api/workout-days/{id}` | Replace a workout day |
 | `POST /api/workout-days/{id}/delete` | Delete a workout day (its sessions are kept) |
-| `POST /api/workout-sessions` | Create or replace a session: `{client_id, day_id, cycle, week, date, entries}` |
+| `POST /api/workout-sessions` | Create or replace a session: `{client_id, day_id, cycle, week, date, entries}`. Editing a logged session sends its own `client_id`. `day_id` may be null only for an existing session whose workout day was deleted. |
 | `POST /api/workout-sessions/{client_id}/delete` | Delete a session and its exercises |
 | `GET /api/trends?days=180` | Per movement: daily best estimated 1RM, or top load for movements logged without RPE |
 | `GET /api/movements/normalize?name=...&renaming=...` | Preview the standard form of a new or changed name, and which existing movement it clashes with |
-| `GET /api/movements/usage?name=...` | How many logged exercises (all users) and workout days use a movement (admins) |
+| `GET /api/movements/usage?name=...` | How many logged exercises (all users) and which workout days use a movement (admins) |
+| `POST /api/movements/delete` | Delete a movement nobody has logged, removing it from workout days: `{name}`. HTTP 409 with the reason if it has logged exercises or is the only exercise of a workout day (admins) |
+| `POST /api/movements` | Create a movement under the standard form of its name: `{name, dip_belt}` (admins) |
 | `POST /api/movements/rename` | Rename a movement and/or change its dip belt setting: `{old_name, new_name, dip_belt, merge}`. Answers `confirm_merge` if the new name belongs to another movement and `merge` isn't set (admins) |
 | `GET /progress?exercise_name=...&days=...` | Daily best estimated 1RM, for the chart |
 | `GET /api/sync`, `POST /api/sync` | Offline cache download, and replay of offline writes |
@@ -130,12 +134,11 @@ Validation errors come back as HTTP 422, with a readable message in `detail`.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | The page (the Create movement section is removed for non-admins) |
+| `GET /` | The page. For non-admins, the admin-only part between `<!-- BEGIN Admin -->` and `<!-- END Admin -->` is removed. |
 | `GET /exercises?offset=&limit=` | Exercise log table with paging |
 | `POST /exercises/` | Log one exercise |
 | `POST /exercises/{id}/delete` | Delete a logged exercise |
-| `GET /movements` | `<option>` list of movements |
-| `POST /movements` | Create a movement (admins) |
+| `GET /movements` | `<option>` list of movements (these lists reload on the `movements-changed` event) |
 | `GET /bodyweight`, `PUT /bodyweight` | Show or update bodyweight |
 | `POST /recommendations` | Load calculator: estimated 1RM, the load for given reps and RPE, and a form to log it |
 

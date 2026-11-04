@@ -388,6 +388,7 @@
                 <div class="wz-top-title">
                     <span class="wz-day">${esc(active.day_name)}</span>
                     <span class="chip neutral">Week ${active.week}</span>
+                    ${active.editing ? '<span class="chip">Editing</span>' : ''}
                 </div>
                 <div class="wz-top-right">${right}</div>
             </div>`;
@@ -401,7 +402,7 @@
             <h2 class="wz-title">${esc(active.day_name)}<span class="wz-subtitle">Week ${active.week} · exercise ${active.index + 1} of ${active.slots.length} · ${done} logged</span></h2>
             <div class="wz-progress">${progressSegments()}</div>
             <button type="button" class="wz-primary" id="wz-resume">Resume</button>
-            <div class="wz-footer"><button type="button" class="link-button" id="wz-cancel">Cancel session</button></div>
+            <div class="wz-footer"><button type="button" class="link-button" id="wz-cancel">${active.editing ? 'Stop editing' : 'Cancel session'}</button></div>
         `;
         root.querySelector('#wz-resume').addEventListener('click', () => {
             active.paused = false;
@@ -412,6 +413,15 @@
     }
 
     async function cancelSession() {
+        if (active.editing) {
+            // Each Next already saved the changes; stopping just leaves the editor.
+            active = null;
+            store(ACTIVE_KEY, null);
+            setStatus('', '');
+            render();
+            renderHistory();
+            return;
+        }
         const anySaved = active.entries.some(Boolean);
         if (!confirm(anySaved ? 'Cancel this session and delete what you logged in it?' : 'Cancel this session?')) return;
         if (anySaved && !(await deleteSession(active.client_id))) return;
@@ -424,6 +434,52 @@
     function targetLabel(slot, week) {
         const rpe = targetRpe(slot, week);
         return `${slot.sets} × ${slot.reps}${rpe !== null ? ` @ ${fmt(rpe)}` : ''}`;
+    }
+
+    // The logged session for a workout day and week of a cycle (the latest, if logged twice), or null.
+    function loggedSession(dayId, cycle, week) {
+        return data.sessions
+            .filter((s) => s.day_id === dayId && s.cycle === cycle && s.week === week && s.entries.length)
+            .sort((a, b) => dayOf(b.date).localeCompare(dayOf(a.date)))[0] || null;
+    }
+
+    // Edit a logged session in the usual one-exercise-at-a-time flow, prefilled with what was logged.
+    // Logged exercises are matched to the workout day's current exercises; any that no longer fit
+    // (the program changed, or the day was deleted) are added at the end, so nothing is lost.
+    // Saving uses the session's own client_id, so it replaces the session instead of adding one.
+    function editLoggedSession(logged) {
+        const day = data.days.find((d) => d.id === logged.day_id);
+        const remaining = logged.entries.map((e) => ({ movement: e.movement, sets: e.sets, reps: e.reps, weight: e.weight, rpe: e.rpe }));
+        const slots = [];
+        const entries = [];
+        for (const slot of (day ? day.slots : [])) {
+            const match = remaining.findIndex((e) => slot.movements.includes(e.movement));
+            slots.push(JSON.parse(JSON.stringify(slot)));
+            entries.push(match >= 0 ? remaining.splice(match, 1)[0] : null);
+        }
+        for (const entry of remaining) {
+            slots.push({ movements: [entry.movement], sets: entry.sets, reps: entry.reps, rpe_targets: null });
+            entries.push(entry);
+        }
+        const reference = findReferenceSession(logged.day_id, logged.cycle, logged.week, logged.client_id);
+        active = {
+            client_id: logged.client_id,
+            day_id: day ? day.id : null,
+            day_name: logged.day_name,
+            slots,
+            cycle: logged.cycle,
+            week: logged.week,
+            date: dayOf(logged.date),
+            reference_client_id: reference ? reference.client_id : null,
+            index: 0,
+            entries,
+            finished: false,
+            editing: true,
+        };
+        store(ACTIVE_KEY, active);
+        setStatus('', '');
+        if (location.hash && location.hash !== '#workout') location.hash = '#workout';
+        render();
     }
 
     function renderStart(root) {
@@ -461,7 +517,8 @@
                     <div class="week-heading" id="wz-cycle-label"></div>
                     <div class="week-strip" id="wz-weeks" role="radiogroup" aria-label="Week of the cycle"></div>
                 </div>
-                <label class="wz-date-label">Date ${window.dateFieldHtml('wz-date', todayISO())}</label>
+                <label class="wz-date-label" id="wz-date-label">Date ${window.dateFieldHtml('wz-date', todayISO())}</label>
+                <p class="wz-logged-note" id="wz-logged-note" hidden></p>
                 <ol id="wz-preview" class="wz-preview"></ol>
                 <button type="submit" class="wz-primary" id="wz-start-button">Start</button>
             </form>
@@ -486,7 +543,7 @@
                 const w = i + 1;
                 const state = w === week ? 'selected' : done.has(w) ? 'done' : skipped(w) ? 'skipped' : '';
                 const sub = w === week
-                    ? (done.has(w) ? 'again' : 'now')
+                    ? (done.has(w) ? 'logged' : 'now')
                     : done.has(w) ? 'done' : skipped(w) ? 'skipped' : '';
                 return `
                     <button type="button" role="radio" class="week-seg ${state}" data-week="${w}"
@@ -506,6 +563,23 @@
 
         const updatePreview = () => {
             const day = selectedDay();
+            const logged = loggedSession(day.id, cycle, week);
+            // Already logged: show what was done, and offer to edit it instead of starting a new session.
+            root.querySelector('#wz-date-label').hidden = Boolean(logged);
+            const note = root.querySelector('#wz-logged-note');
+            note.hidden = !logged;
+            if (logged) {
+                note.innerHTML = `<span class="chip best">Logged</span> on ${formatDay(logged.date)}`;
+                root.querySelector('#wz-preview').innerHTML = logged.entries.map((e) => `
+                    <li>
+                        <span>${esc(e.movement)}</span>
+                        <span class="wz-logged-detail">${entryDetail(e)}</span>
+                    </li>`).join('');
+                root.querySelector('#wz-start-button').textContent = 'Edit session';
+                root.querySelector('#wz-start-button').classList.add('edit-mode');
+                return;
+            }
+            root.querySelector('#wz-start-button').classList.remove('edit-mode');
             root.querySelector('#wz-preview').innerHTML = day.slots.map((slot) => `
                 <li>
                     <span>${esc(slot.movements[0])}${slot.movements.length > 1
@@ -534,6 +608,11 @@
         root.querySelector('#wz-start').addEventListener('submit', (event) => {
             event.preventDefault();
             const day = selectedDay();
+            const logged = loggedSession(day.id, cycle, week);
+            if (logged) {
+                editLoggedSession(logged);
+                return;
+            }
             const clientId = newClientId();
             const reference = findReferenceSession(day.id, cycle, week, clientId);
             active = {
@@ -659,7 +738,7 @@
                 </div>
             </form>
             <p id="wz-status" class="wizard-status ${status.kind}">${esc(status.text)}</p>
-            <div class="wz-footer"><button type="button" class="link-button" id="wz-cancel">Cancel session</button></div>
+            <div class="wz-footer"><button type="button" class="link-button" id="wz-cancel">${active.editing ? 'Stop editing' : 'Cancel session'}</button></div>
         `;
 
         root.querySelectorAll('.stepper-control button').forEach((button) => {
@@ -796,7 +875,7 @@
             <div class="wz-progress">${progressSegments()}</div>
             <div class="wz-done">
                 <div class="wz-done-icon">${CHECK_ICON}</div>
-                <h2>Session complete</h2>
+                <h2>${active.editing ? 'Session updated' : 'Session complete'}</h2>
                 <div class="muted">${sessionEyebrow()}</div>
                 <div class="wz-stats">
                     <div><strong>${done.length}</strong><span>of ${active.slots.length} exercises</span></div>
@@ -954,7 +1033,10 @@
                 <ul class="summary-list">
                     ${s.entries.map((e) => `<li><div class="name">${esc(e.movement)}</div><div class="detail">${entryDetail(e)}</div></li>`).join('')}
                 </ul>
-                <button type="button" class="secondary outline small-button" data-delete-session="${esc(s.client_id)}">Delete session</button>
+                <div class="history-actions">
+                    <button type="button" class="secondary outline small-button" data-edit-session="${esc(s.client_id)}">Edit</button>
+                    <button type="button" class="secondary outline small-button danger" data-delete-session="${esc(s.client_id)}">Delete</button>
+                </div>
             </details>`;
         }).join('');
         const more = sessions.length > historyShown
@@ -962,10 +1044,19 @@
             : '';
         root.innerHTML = items + more;
 
+        root.querySelectorAll('[data-edit-session]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const logged = data.sessions.find((s) => s.client_id === button.dataset.editSession);
+                if (!logged) return;
+                if (active && !active.finished && active.client_id !== logged.client_id &&
+                    !confirm(`Leave the ${active.day_name} session you're in? What you've logged in it is kept.`)) return;
+                editLoggedSession(logged);
+            });
+        });
         root.querySelectorAll('[data-delete-session]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const clientId = button.dataset.deleteSession;
-                if (!confirm('Delete this session?')) return;
+                if (!confirm('Delete this session and everything logged in it?')) return;
                 if (await deleteSession(clientId) && active && active.client_id === clientId) {
                     active = null;
                     store(ACTIVE_KEY, null);
@@ -1000,8 +1091,6 @@
     // New exercises (session uploads, Log exercise) change the trends.
     document.body.addEventListener('exercise-logged', loadTrends);
     window.addEventListener('online', syncSessions);
-    // A movement created on the Program tab (HX-Trigger) must show up in the movement pickers.
-    document.body.addEventListener('movement-created', refresh);
 
     // Shared with static/program.js (the program editor).
     window.WorkoutApp = { getData: () => data, refresh, esc, fmt };

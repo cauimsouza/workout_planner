@@ -106,8 +106,48 @@ def resolve_movement(session: Session, name: str) -> str | None:
 
 
 def usage(session: Session, name: str) -> dict:
-    """How much a movement is used, to show before renaming it."""
+    """How much a movement is used, to show before renaming or deleting it."""
     exercises = len(session.exec(select(Exercise.id).where(Exercise.exercise_name == name)).all())
-    days = sum(1 for day in session.exec(select(WorkoutDay)).all()
-               if any(name in slot['movements'] for slot in day.slots))
-    return {'exercises': exercises, 'workout_days': days}
+    days = [day.name for day in session.exec(select(WorkoutDay)).all()
+            if any(name in slot['movements'] for slot in day.slots)]
+    return {'exercises': exercises, 'workout_days': len(days), 'workout_day_names': days}
+
+
+class CannotDelete(ValueError):
+    pass
+
+
+def delete_movement(session: Session, name: str) -> None:
+    """Delete a movement that nobody has logged. Does not commit.
+
+    It's removed from workout days: dropped from an exercise's alternatives, or the exercise is
+    removed if this was its only movement. Raises CannotDelete if it has logged exercises (deleting
+    would erase history; merge it into another movement instead) or if it's the only exercise left
+    in a workout day.
+    """
+    movement = session.get(Movement, name)
+    if movement is None:
+        raise KeyError(name)
+    logged = usage(session, name)['exercises']
+    if logged:
+        raise CannotDelete(
+            f'{name} is in {logged} logged exercise{"" if logged == 1 else "s"}, and deleting it would erase '
+            'that history. To get rid of it, rename it to the movement it should be: the two are merged.')
+
+    changed_days = []
+    for day in session.exec(select(WorkoutDay)).all():
+        if not any(name in slot['movements'] for slot in day.slots):
+            continue
+        slots = [{**slot, 'movements': [m for m in slot['movements'] if m != name]} for slot in day.slots]
+        slots = [slot for slot in slots if slot['movements']]
+        if not slots:
+            raise CannotDelete(f'{name} is the only exercise in the workout day {day.name}. Change or delete that day first.')
+        changed_days.append((day, slots))
+    for day, slots in changed_days:
+        day.slots = slots  # Reassign so the JSON column is saved
+        session.add(day)
+
+    for alias in session.exec(select(MovementAlias).where(MovementAlias.movement_name == name)).all():
+        session.delete(alias)
+    session.delete(movement)
+    session.flush()

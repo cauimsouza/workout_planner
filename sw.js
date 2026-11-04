@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workout-tracker-v6';
+const CACHE_NAME = 'workout-tracker-v7';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
@@ -304,9 +304,6 @@ async function handleOfflineWrite(url, method, body) {
         if (url.pathname === '/bodyweight' && method === 'PUT') {
             return handleOfflineUpdateBodyweight(db, form);
         }
-        if (url.pathname === '/movements' && method === 'POST') {
-            return handleOfflineCreateMovement(db, form);
-        }
         if (url.pathname === '/recommendations' && method === 'POST') {
             return handleOfflineRecommendation(db, form);
         }
@@ -364,40 +361,6 @@ async function handleOfflineUpdateBodyweight(db, form) {
             </p>
         </div>
     `);
-}
-
-async function handleOfflineCreateMovement(db, form) {
-    const existing = await getByKey(db, 'movements', form.name);
-    if (existing) {
-        return htmlResponse(`
-            <div class="failure-message">
-            <p>Movement ${form.name} already exists</p>
-            </div>
-        `);
-    }
-
-    const movement = {
-        name: form.name,
-        dip_belt: form.dip_belt === 'on' || form.dip_belt === 'true',
-    };
-    await putItem(db, 'movements', movement);
-    await queuePending(db, {
-        type: 'create_movement',
-        data: movement,
-        created_at: new Date().toISOString(),
-    });
-
-    // Return response with HX-Trigger header so movement dropdowns refresh
-    return new Response(`
-        <div class="success-message">
-        <p>Movement ${form.name} successfully created</p>
-        </div>
-    `, {
-        headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'HX-Trigger': 'movement-created',
-        },
-    });
 }
 
 async function handleOfflineRecommendation(db, form) {
