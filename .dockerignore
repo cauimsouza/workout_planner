@@ -1,0 +1,30 @@
+# Files that must not end up in the Docker image. The app's own files (*.py, index.html, sw.js,
+# manifest.json, static/) are still copied; rename_movements.py is kept because it's run inside the container.
+
+# Settings and secrets: passed at runtime with --env-file instead
+.env
+.env.*
+
+# Local databases and their backups: the real database lives in the workout-data volume
+*.db
+*.db.*
+*.sqlite
+*.sqlite3
+
+# Version control, editors, Python caches and virtual environments
+.git
+.gitignore
+.vscode
+.idea
+__pycache__
+*.py[cod]
+.venv
+venv
+
+# Not needed to run the app
+Dockerfile
+.dockerignore
+docs
+readme.md
+start.sh
+start_docker.sh
