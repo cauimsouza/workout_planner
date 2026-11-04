@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workout-tracker-v4';
+const CACHE_NAME = 'workout-tracker-v5';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',

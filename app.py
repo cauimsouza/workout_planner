@@ -130,6 +130,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.middleware('http')
+async def revalidate_app_files(request: Request, call_next):
+    """Make browsers check the page and its files with the server on every load.
+
+    Without a Cache-Control header, browsers may reuse a cached script for a while without asking,
+    so after an update the new page could run with old JavaScript. "no-cache" still lets them keep
+    the files, but they revalidate first (a cheap 304 when nothing changed).
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == '/' or path.startswith('/static/') or path in ('/sw.js', '/manifest.json'):
+        response.headers.setdefault('Cache-Control', 'no-cache')
+    return response
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/manifest.json")
