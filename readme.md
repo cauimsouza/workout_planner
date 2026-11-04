@@ -1,106 +1,186 @@
 # Workout Planner
 
-A workout tracking PWA that recommends weights based on past performance using Brzycki's 1RM formula.
+A self-hosted workout tracker for programs built in **4-week cycles**. You define your workout days
+once (e.g. *Primary Pull*: muscle-ups 3×3, weighted chin-ups 3×3, rows 3×10, ...). At the gym, the
+app walks you through the day's exercises one at a time and tells you what load to use, based on
+what you did last time and the RPE you're aiming for this week.
+
+It's a web app you install on your phone's home screen. It works offline and syncs when you're back
+online. It runs on a small server such as a Raspberry Pi, behind Cloudflare Access for login.
+
+- [How it works](#how-it-works)
+- [Features](#features)
+- [Deploying](#deploying)
+- [Running the app](#running-the-app): updates, backups, admins, movement names
+- [Development](#development)
+- [Architecture](docs/architecture.md) (for changing the code)
+
+## How it works
+
+**Program.** Your program is a set of *workout days*, each usually done on a fixed weekday. A
+workout day lists its exercises with sets × reps and, optionally, a target **RPE for each week** of
+the cycle (e.g. 7, 7.5, 8, 9: lightest in week 1, heaviest in week 4). An exercise can list
+alternative movements, e.g. *Cable seated row* or *Chest supported rows*.
+
+**Cycle and week.** The app tracks where you are without a calendar. The current cycle is the one
+you're in until you've done a workout day's week 4; its next session then starts the next cycle. The
+week is the furthest week reached so far, or the next one if you've already done this workout day
+that week. Missed sessions show up as *skipped* and can still be made up. You can always pick
+another week.
+
+**Suggested loads.** For each exercise, the app shows your **reference session** next to the
+inputs:
+
+- in weeks 2–4: the same workout day in the previous week of this cycle;
+- in week 1: week 1 of the previous cycle;
+- otherwise, the most recent time you did that movement.
+
+For exercises with a target RPE, it also **suggests a load**. It estimates your one-rep max from
+your best recent set with Brzycki's formula, counting reps in reserve (10 − RPE) as extra reps, then
+works back to the load for this week's reps and RPE. Loads are rounded to 1.25 kg. For *dip-belt*
+movements (weighted pull-ups, dips, ...) the calculation includes your bodyweight, and the load is
+the weight on the belt.
 
 ## Features
 
-- **Guided workout sessions** -- define your program as workout days (e.g. "Primary Pull") in 4-week cycles. The Workout section walks you through a day's exercises one at a time. It suggests the cycle/week and prefills each load from your reference session: the previous week of the cycle, or week 1 of the previous cycle. For exercises with a target RPE, it also computes a weight for that RPE. Every step is saved immediately, works offline, and appears in Sessions.
-- **Weight recommendations** -- estimates your 1RM from recent workouts (best of last 4 sessions) and suggests a weight for your target reps/RPE. The recommended weight is editable before logging.
-- **Dip-belt support** -- tracks bodyweight separately so added-weight exercises (pull-ups, dips) get accurate 1RM calculations.
-- **Progress charts** -- visualise estimated 1RM over time per exercise (powered by Chart.js).
-- **Offline mode** -- service worker + IndexedDB let you log workouts offline; pending actions sync when connectivity returns.
-- **Multi-user** -- authentication via Cloudflare Access (JWT); each user has isolated data.
+- **Guided sessions:** one exercise per screen with the target, last time, suggested load, and
+  +/− steppers for sets, reps, load and RPE. Back/Skip/Next stay within thumb reach. Each step is
+  saved as you go, and a summary at the end compares your loads with the reference session and
+  marks new best estimated 1RMs.
+- **Program editor:** workout days as cards. Movements come from a searchable list, so names can't
+  be mistyped; each exercise has sets × reps and RPE per week. Days can be duplicated, which is
+  handy for a new cycle.
+- **History:** the current cycle at a glance, logged sessions, a trend line per movement, an
+  estimated-1RM chart, and the full exercise log.
+- **Extras:** log a one-off exercise outside your program, and a load calculator (estimated 1RM
+  and the load for any reps and RPE).
+- **Offline:** sessions are saved on the phone and upload when the connection returns.
+- **Phone-friendly:** home-screen install (iPhone and Android), light/dark theme, decimal commas
+  accepted, no zooming into fields.
+- **Multiple users:** each person logged in through Cloudflare Access has their own program and
+  history. Movements are shared, and only admins can create them.
 
-## Tech Stack
+## Deploying
 
-- **Backend**: FastAPI, SQLModel, SQLite
-- **Frontend**: HTMX, Pico CSS, Chart.js
-- **Auth**: Cloudflare Access (JWT verification)
-- **Infra**: Docker, service worker for offline PWA support
+The app is a single Docker container with a SQLite database on a Docker volume. It expects
+[Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of it:
+every request must carry the `Cf-Access-Jwt-Assertion` header that Access adds, and the app
+verifies it to identify the user. Without that header, pages are refused.
 
-## Running locally
+1. **Cloudflare.** Expose the server through a
+   [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+   pointing at `http://localhost:8000`, and protect that hostname with an Access application.
+   Note the application's **audience (AUD) tag**, and your team name (the `<team>` in
+   `<team>.cloudflareaccess.com`).
+
+2. **Configuration.** In the project folder, create `.env`:
+
+   ```bash
+   CF_ACCESS_TEAM_DOMAIN=your-team
+   CF_ACCESS_AUD=your-audience-tag
+   ```
+
+3. **Start.** Run `./start_docker.sh`. It builds the image and (re)starts the `workout-tracker`
+   container, restarting it automatically after a reboot. The app listens on `127.0.0.1:8000`
+   (reachable only through the tunnel) and keeps its database in the `workout-data` volume at
+   `/app/data/database.db`.
+
+4. **First login.** Open the app through your Cloudflare hostname. Users are created the first time
+   they log in. [Make yourself an admin](#making-someone-an-admin) so you can create movements,
+   then add your workout days in **Program**.
+
+On an iPhone, open the app in Safari and use **Share → Add to Home Screen** to get the full-screen app.
+
+## Running the app
+
+### Updating
 
 ```bash
-pip install -r requirements.txt
-
-# Required environment variables for Cloudflare Access auth:
-export CF_ACCESS_TEAM_DOMAIN="your-team"
-export CF_ACCESS_AUD="your-audience-tag"
-
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
+docker stop workout-tracker
+docker cp workout-tracker:/app/data/database.db ~/workout-backup-$(date +%F).db   # Backup first
+git pull
+./start_docker.sh
 ```
 
-## Running with Docker
+`start_docker.sh` replaces the container but never the `workout-data` volume, so data is kept. If a
+new version needs to change the database, it does so on startup, saving a copy as
+`database.db.<timestamp>.bak` in the volume first. Check the logs with
+`docker logs workout-tracker`. After an update, reload the app on your phone once or twice to get
+the new version.
+
+### Backups and restoring
+
+The whole state of the app is one SQLite file. To back it up, stop the container so the copy is
+consistent:
 
 ```bash
-docker build -t workout-planner .
-docker run -p 8000:8000 \
-  -e CF_ACCESS_TEAM_DOMAIN="your-team" \
-  -e CF_ACCESS_AUD="your-audience-tag" \
-  workout-planner
+docker stop workout-tracker
+docker cp workout-tracker:/app/data/database.db ~/workout-backup-$(date +%F).db
+docker start workout-tracker
 ```
 
-## Project Structure
+To restore a backup:
 
-```
-├── app.py           # FastAPI app -- routes, 1RM math, HTML fragments
-├── models.py        # SQLModel models (User, Movement, Exercise, WorkoutDay, WorkoutSession)
-├── movement_names.py  # Standard form for movement names
-├── rename_movements.py  # One-off tool: rename existing movements to the standard form
-├── database.py      # Engine setup and seed data
-├── auth.py          # Cloudflare Access JWT verification
-├── index.html       # HTMX frontend
-├── sw.js            # Service worker (offline caching & writes)
-├── static/          # Icons, font, offline JS, session wizard (workout.js), program editor (program.js)
-├── manifest.json    # PWA manifest
-├── Dockerfile
-└── requirements.txt
+```bash
+docker cp ~/workout-backup-YYYY-MM-DD.db workout-tracker:/app/data/database.db
+docker restart workout-tracker
 ```
 
-## API
+To roll back to an earlier version of the app, check out that commit, run `./start_docker.sh`, and
+restore a backup taken before the update. An older version may not understand data written by a
+newer one.
 
-### Pages
-- `GET /` -- main UI
+### Making someone an admin
 
-### HTMX endpoints (return HTML fragments)
-- `GET /exercises` -- exercise `<option>` list
-- `POST /exercises` -- create a new exercise
-- `GET /workouts` -- paginated workout history
-- `POST /workouts/` -- log a workout
-- `GET /bodyweight` -- current bodyweight display
-- `PUT /bodyweight` -- update bodyweight
-- `POST /recommendations` -- get a weight recommendation
+Admins can create movements. The person must have logged in once.
 
-### JSON API
-- `GET /progress?exercise_name=...&days=...` -- 1RM history for charting
-- `GET /api/sync` -- pull all user data (for offline cache)
-- `POST /api/sync` -- replay offline actions
-- `GET /api/program` -- workout days, logged sessions and recent loads (for the session wizard and program editor)
-- `POST /api/workout-days`, `POST /api/workout-days/{id}`, `POST /api/workout-days/{id}/delete` -- create/update/delete a workout day (JSON)
-- `GET /api/trends?days=...` -- per-movement trend (estimated 1RM or top load) for History
-- `POST /api/workout-sessions` -- create or replace a workout session (idempotent, keyed by `client_id`)
-- `POST /api/workout-sessions/{client_id}/delete` -- delete a workout session
-
-### Program editor
-
-Workout days are edited in the Program tab: one card per exercise, with the movement picked from a
-searchable list (alternatives such as row variations can be added), sets x reps, and optional RPE
-targets, one per week of the 4-week cycle.
+```bash
+docker exec workout-tracker python -c "
+import sqlite3; db = sqlite3.connect('/app/data/database.db')
+db.execute(\"UPDATE user SET is_admin = 1 WHERE email = 'you@example.com'\"); db.commit()"
+```
 
 ### Movement names
 
-Movement names have a standard form (rules in `movement_names.py`): sentence case ("Cable seated row"),
-hyphenated "-up" movements ("Pull-up", "Muscle-up"), and tidy spacing. New movements are converted
-automatically, and a name that matches an existing movement apart from formatting is refused.
+Movement names have a standard form (rules in [`movement_names.py`](movement_names.py)):
 
-To bring existing movements in line, run `rename_movements.py` (with Docker:
-`docker exec -it workout-tracker python rename_movements.py`). It only shows the planned changes
-until you add `--apply`, which backs up the database first, renames each movement in logged
-exercises and workout days, and merges duplicates such as "Pull up" and "Pull-up". Use
-`--rename "Old=New"` for wording changes the rules can't make, e.g. `--rename "Bend Over Rows=Bent-over row"`.
+- sentence case: *Cable seated row* (abbreviations like *RDL* and proper names like *Romanian* keep
+  their capitals);
+- hyphenated "-up" movements: *Pull-up*, *Chin-up*, *Muscle-up*;
+- tidy spacing: *Weighted muscle-up (swing back)*.
 
-### Database migrations
+New movements are converted automatically ("pull up" becomes *Pull-up*), and a name that matches an
+existing movement apart from formatting is refused. To bring older names in line:
 
-On startup, an `exercise` table from an older version is rebuilt to make `rpe` optional and add `session_id`.
-A copy of the database file is saved next to it first (`database.db.<timestamp>.bak`).
-`DATABASE_PATH` overrides the database location (default `/app/data/database.db`).
+```bash
+docker exec -it workout-tracker python rename_movements.py           # Preview, changes nothing
+docker exec -it workout-tracker python rename_movements.py --apply   # Back up, then rename
+```
+
+The tool renames each movement everywhere it's used (logged exercises and workout days) and merges
+duplicates such as "Pull up" and "Pull-up". It can't change wording, so use
+`--rename "Bend Over Rows=Bent-over row"` for that. Movements are shared by all users, so renames
+apply to everyone's history.
+
+## Development
+
+Requirements: Python 3.12 (as in the Docker image).
+
+```bash
+pip install -r requirements.txt
+export CF_ACCESS_TEAM_DOMAIN=your-team CF_ACCESS_AUD=your-audience-tag
+export DATABASE_PATH=$PWD/dev.db   # Default is /app/data/database.db (the Docker volume)
+uvicorn app:app --reload --port 8000
+```
+
+The server starts, but every page needs a valid Cloudflare Access token, so a browser pointed
+straight at it gets an error. There is no built-in login bypass. To try the UI locally, run the app
+from a small script that replaces the `get_current_user` dependency with a fixed test user
+(`app.dependency_overrides[get_current_user] = lambda: user`), and keep that script out of the
+deployed code.
+
+There is no automated test suite yet. Changes are checked by driving the app with FastAPI's
+`TestClient` and with a headless browser (Playwright, including WebKit for iPhone behaviour).
+
+See **[docs/architecture.md](docs/architecture.md)** for how the code is organised, the data model,
+the offline design and the API.
