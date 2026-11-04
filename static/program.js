@@ -438,9 +438,11 @@
         return sheet;
     }
 
-    function openPicker(current, onPick) {
+    function openPicker(current, onPick, options = {}) {
         const sheet = pickerElement();
         pickerCallback = onPick;
+        sheet.dataset.allowCreate = options.allowCreate === false ? '' : 'yes';
+        sheet.querySelector('#picker-title').textContent = options.title || 'Choose movement';
         sheet.dataset.current = current || '';
         const search = sheet.querySelector('#picker-search');
         search.value = '';
@@ -485,7 +487,7 @@
         // Admins can create a missing movement right here, under its standard name (see movement_names.py).
         const exact = names.some((name) => name.toLocaleLowerCase() === folded);
         const create = sheet.querySelector('#picker-create');
-        create.hidden = !(data().is_admin && query && !exact);
+        create.hidden = !(data().is_admin && sheet.dataset.allowCreate && query && !exact);
         if (!create.hidden) previewNewName(query);
     }
 
@@ -540,6 +542,176 @@
             sheet.querySelector('#picker-create-button').textContent = `Couldn't create “${name}”. Are you online?`;
         }
     }
+
+    // --- Edit a movement (admins): rename, fix dip belt, merge duplicates ---
+
+    function movementEditorElement() {
+        let sheet = document.getElementById('movement-editor');
+        if (sheet) return sheet;
+        sheet = document.createElement('div');
+        sheet.id = 'movement-editor';
+        sheet.className = 'sheet-backdrop';
+        sheet.hidden = true;
+        sheet.innerHTML = `
+            <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="movement-editor-title">
+                <div class="sheet-head">
+                    <strong id="movement-editor-title">Edit movement</strong>
+                    <button type="button" class="icon-button" id="movement-editor-close" aria-label="Close">${ICONS.close}</button>
+                </div>
+                <label>Name
+                    <input type="text" id="movement-editor-name" autocomplete="off" autocapitalize="sentences" spellcheck="false">
+                </label>
+                <small class="picker-hint" id="movement-editor-hint" aria-live="polite"></small>
+                <label class="movement-editor-switch"><input type="checkbox" role="switch" id="movement-editor-dip-belt"> Dip belt (load is added to bodyweight)</label>
+                <p class="muted movement-editor-usage" id="movement-editor-usage"></p>
+                <div class="failure-message" id="movement-editor-error" hidden></div>
+                <div class="editor-secondary">
+                    <button type="button" class="secondary outline" id="movement-editor-cancel">Cancel</button>
+                    <button type="button" id="movement-editor-save">Save</button>
+                </div>
+            </div>`;
+        document.body.appendChild(sheet);
+        const close = () => { sheet.hidden = true; document.body.classList.remove('sheet-open'); };
+        sheet.addEventListener('click', (event) => { if (event.target === sheet) close(); });
+        sheet.querySelector('#movement-editor-close').addEventListener('click', close);
+        sheet.querySelector('#movement-editor-cancel').addEventListener('click', close);
+        sheet.querySelector('#movement-editor-name').addEventListener('input', () => {
+            sheet.dataset.merge = '';
+            previewRename();
+        });
+        sheet.querySelector('#movement-editor-save').addEventListener('click', saveMovement);
+        document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !sheet.hidden) close(); });
+        return sheet;
+    }
+
+    function usageText(counts) {
+        const parts = [];
+        parts.push(`${counts.exercises} logged exercise${counts.exercises === 1 ? '' : 's'}`);
+        parts.push(`${counts.workout_days} workout day${counts.workout_days === 1 ? '' : 's'}`);
+        return parts.join(' and ');
+    }
+
+    async function openMovementEditor(name) {
+        const sheet = movementEditorElement();
+        sheet.dataset.old = name;
+        sheet.dataset.merge = '';
+        sheet.querySelector('#movement-editor-name').value = name;
+        sheet.querySelector('#movement-editor-dip-belt').checked = Boolean(data().movements[name] && data().movements[name].dip_belt);
+        sheet.querySelector('#movement-editor-dip-belt').disabled = false;
+        sheet.querySelector('#movement-editor-hint').textContent = '';
+        sheet.querySelector('#movement-editor-error').hidden = true;
+        sheet.querySelector('#movement-editor-save').textContent = 'Save';
+        sheet.querySelector('#movement-editor-save').disabled = false;
+        const usageLine = sheet.querySelector('#movement-editor-usage');
+        usageLine.textContent = '';
+        sheet.hidden = false;
+        document.body.classList.add('sheet-open');
+        try {
+            const response = await fetch(`/api/movements/usage?name=${encodeURIComponent(name)}`);
+            if (response.ok) {
+                usageLine.textContent = `Used in ${usageText(await response.json())}, across all users. A new name is applied to all of them.`;
+            }
+        } catch (e) { /* Offline: saving will say so */ }
+    }
+
+    // Show the standard form of the new name, and whether it would merge into another movement.
+    let renameTimer = null;
+    function previewRename() {
+        const sheet = movementEditorElement();
+        const old = sheet.dataset.old;
+        const typed = sheet.querySelector('#movement-editor-name').value.trim();
+        const hint = sheet.querySelector('#movement-editor-hint');
+        const save = sheet.querySelector('#movement-editor-save');
+        const dipBelt = sheet.querySelector('#movement-editor-dip-belt');
+        sheet.querySelector('#movement-editor-error').hidden = true;
+        clearTimeout(renameTimer);
+        renameTimer = setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/movements/normalize?name=${encodeURIComponent(typed)}&renaming=${encodeURIComponent(old)}`);
+                const result = await response.json();
+                if (sheet.querySelector('#movement-editor-name').value.trim() !== typed) return; // Typed on since
+                save.textContent = 'Save';
+                dipBelt.disabled = false;
+                if (result.existing) {
+                    hint.textContent = `${result.existing} already exists. Saving merges ${old} into it, together with its history.`;
+                    hint.className = 'picker-hint warn';
+                    save.textContent = 'Merge';
+                    dipBelt.checked = Boolean(data().movements[result.existing] && data().movements[result.existing].dip_belt);
+                    dipBelt.disabled = true; // A merge keeps the existing movement's setting
+                    save.disabled = false;
+                } else if (result.error) {
+                    hint.textContent = result.error;
+                    hint.className = 'picker-hint error';
+                    save.disabled = true;
+                } else {
+                    hint.textContent = result.name !== typed ? `Will be saved as “${result.name}”.` : '';
+                    hint.className = 'picker-hint';
+                    save.disabled = false;
+                }
+            } catch (e) {
+                hint.textContent = 'Renaming needs a connection.';
+                hint.className = 'picker-hint error';
+            }
+        }, 250);
+    }
+
+    async function saveMovement() {
+        const sheet = movementEditorElement();
+        const old = sheet.dataset.old;
+        const save = sheet.querySelector('#movement-editor-save');
+        const errorBox = sheet.querySelector('#movement-editor-error');
+        const payload = {
+            old_name: old,
+            new_name: sheet.querySelector('#movement-editor-name').value.trim(),
+            dip_belt: sheet.querySelector('#movement-editor-dip-belt').checked,
+            merge: save.textContent === 'Merge',
+        };
+        save.setAttribute('aria-busy', 'true');
+        let body = null;
+        let failure = null;
+        try {
+            const response = await fetch('/api/movements/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            body = await response.json().catch(() => null);
+            if (!response.ok) failure = errorText(body, response.status);
+        } catch (e) {
+            failure = 'You\'re offline. Renaming needs a connection.';
+        }
+        save.removeAttribute('aria-busy');
+        if (failure) {
+            errorBox.textContent = failure;
+            errorBox.hidden = false;
+            return;
+        }
+        if (body.status === 'confirm_merge') {
+            // Someone created the other movement after the preview: ask again.
+            previewRename();
+            return;
+        }
+        sheet.hidden = true;
+        document.body.classList.remove('sheet-open');
+        // Keep a workout day being edited in step with the new name.
+        if (editing) {
+            for (const slot of editing.slots) {
+                slot.movements = [...new Set(slot.movements.map((name) => (name === old ? body.name : name)))];
+            }
+        }
+        message = {
+            text: body.merged ? `Merged ${old} into ${body.name}` : body.name !== old ? `Renamed ${old} to ${body.name}` : `Saved ${body.name}`,
+            kind: 'ok',
+        };
+        await app().refresh();
+        render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('#edit-movement-button')) return;
+        openPicker('', (name) => openMovementEditor(name), { title: 'Edit which movement?', allowCreate: false });
+    });
 
     // --- Startup ---
 

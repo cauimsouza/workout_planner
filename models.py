@@ -6,6 +6,15 @@ class Movement(SQLModel, table=True):
     name: str = Field(primary_key=True)
     dip_belt: bool = Field(default=False)
 
+class MovementAlias(SQLModel, table=True):
+    """A former name of a renamed movement, so data recorded under the old name still finds it.
+
+    Phones can hold sessions recorded before a rename (in progress, or saved offline); when they
+    upload, their movement names are looked up here.
+    """
+    old_name: str = Field(primary_key=True)
+    movement_name: str = Field(foreign_key='movement.name')
+
 class ExerciseBase(SQLModel):
     exercise_name: str = Field(index=True, foreign_key='movement.name')
     sets: int = Field(default=3)

@@ -7,6 +7,7 @@ from pathlib import Path
 from auth import verify_cf_access_token
 from models import Exercise, Movement, User, WorkoutDay, WorkoutSession
 from movement_names import InvalidMovementName, normalize_movement_name
+from movements import add_movement, find_existing, rename_movement, resolve_movement, usage
 from database import create_db_and_tables, engine
 
 MIN_REPS = 1
@@ -397,9 +398,12 @@ async def api_sync_push(*,
         data = action['data']
 
         if action_type == 'create_exercise':
-            movement = session.get(Movement, data['exercise_name'])
+            name = resolve_movement(session, data['exercise_name'])  # It may have been renamed since
+            if name is None:
+                continue
+            movement = session.get(Movement, name)
             exercise = Exercise(
-                exercise_name=data['exercise_name'],
+                exercise_name=name,
                 sets=int(data.get('sets', DEFAULT_SETS)),
                 reps=int(data['reps']),
                 weight=float(data['weight']),
@@ -424,23 +428,21 @@ async def api_sync_push(*,
                 name = check_new_movement_name(session, data['name'])
             except InvalidMovementName:
                 continue  # Invalid, or it already exists
-            session.add(Movement(name=name, dip_belt=bool(data.get('dip_belt', False))))
+            add_movement(session, name, bool(data.get('dip_belt', False)))
             session.flush()
 
     session.commit()
     return {"status": "ok", "replayed": len(actions)}
 
-def check_new_movement_name(session: Session, raw_name: str) -> str:
-    """Standard form of a new movement's name. Raises InvalidMovementName if it's invalid or already exists."""
+def check_new_movement_name(session: Session, raw_name: str, renaming: str | None = None) -> str:
+    """Standard form of a new movement name. Raises InvalidMovementName if it's invalid or already exists.
+
+    When renaming, the movement being renamed doesn't count as existing.
+    """
     name = normalize_movement_name(raw_name)
-    for existing in session.exec(select(Movement.name)).all():
-        try:
-            existing_standard = normalize_movement_name(existing)
-        except InvalidMovementName:
-            existing_standard = existing
-        # Compare standard forms, so "Pull-up" is caught even if an older "Pull up" hasn't been renamed yet.
-        if existing_standard.casefold() == name.casefold():
-            raise InvalidMovementName(f'{existing} already exists.')
+    existing = find_existing(session, name, exclude=renaming)
+    if existing is not None:
+        raise InvalidMovementName(f'{existing} already exists.')
     return name
 
 @app.get('/api/movements/normalize')
@@ -448,12 +450,68 @@ def preview_movement_name(*,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     name: str = Query(...),
+    renaming: str | None = Query(default=None),
 ):
-    """The name a new movement would get, so it can be shown before creating it."""
+    """The standard form of a name for a new (or renamed) movement, so it can be shown before saving.
+
+    `existing` names the movement it clashes with: an error when creating, a merge when renaming.
+    """
     try:
-        return {'name': check_new_movement_name(session, name), 'error': None}
+        standard = normalize_movement_name(name)
     except InvalidMovementName as error:
-        return {'name': None, 'error': str(error)}
+        return {'name': None, 'error': str(error), 'existing': None}
+    existing = find_existing(session, standard, exclude=renaming)
+    if existing is not None:
+        return {'name': standard, 'error': f'{existing} already exists.', 'existing': existing}
+    return {'name': standard, 'error': None, 'existing': None}
+
+class MovementRenameIn(BaseModel):
+    old_name: str
+    new_name: str
+    dip_belt: bool
+    merge: bool = False # Confirms merging into an existing movement with the new name
+
+def require_admin(user: User):
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only admins can change movements.')
+
+@app.get('/api/movements/usage')
+def get_movement_usage(*,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    name: str = Query(...),
+):
+    """How many logged exercises (all users) and workout days use a movement."""
+    require_admin(current_user)
+    if session.get(Movement, name) is None:
+        raise HTTPException(status_code=404, detail='Movement not found')
+    return usage(session, name)
+
+@app.post('/api/movements/rename')
+def post_movement_rename(*,
+    data: MovementRenameIn,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Rename a movement (and/or change its dip belt setting) everywhere it's used.
+
+    Renaming to the name of another movement merges the two, which must be confirmed with merge=true.
+    """
+    require_admin(current_user)
+    if session.get(Movement, data.old_name) is None:
+        raise HTTPException(status_code=404, detail='Movement not found')
+    try:
+        new_name = normalize_movement_name(data.new_name)
+    except InvalidMovementName as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    existing = find_existing(session, new_name, exclude=data.old_name)
+    if existing is not None and not data.merge:
+        return {'status': 'confirm_merge', 'name': existing, **usage(session, existing)}
+    name = rename_movement(session, data.old_name, new_name,
+                           # When merging, keep the existing movement's dip belt setting.
+                           dip_belt=None if existing is not None else data.dip_belt)
+    session.commit()
+    return {'status': 'ok', 'name': name, 'merged': existing is not None}
 
 @app.post('/movements', response_class=HTMLResponse)
 def create_movement(*,
@@ -475,7 +533,7 @@ def create_movement(*,
         </div>
         """
 
-    session.add(Movement(name=standard_name, dip_belt=dip_belt))
+    add_movement(session, standard_name, dip_belt)
     session.commit()
 
     response.headers["HX-Trigger"] = "movement-created"
@@ -625,14 +683,6 @@ class WorkoutSessionIn(BaseModel):
     date: date
     entries: list[SessionEntryIn]
 
-def resolve_movement_name(name: str, movements: dict[str, Movement]) -> str | None:
-    """The existing movement a name refers to, allowing for a since-standardized spelling."""
-    try:
-        target = normalize_movement_name(name).casefold()
-    except InvalidMovementName:
-        return None
-    return next((existing for existing in movements if existing.casefold() == target), None)
-
 def upsert_workout_session(session: Session, user: User, data: WorkoutSessionIn) -> WorkoutSession:
     '''Create or replace a workout session and its exercises. Does not commit.
 
@@ -643,8 +693,8 @@ def upsert_workout_session(session: Session, user: User, data: WorkoutSessionIn)
     movements = {movement.name: movement for movement in session.exec(select(Movement)).all()}
     for entry in data.entries:
         if entry.movement not in movements:
-            # The movement may have been renamed to its standard form since (rename_movements.py).
-            renamed = resolve_movement_name(entry.movement, movements)
+            # The movement may have been renamed since the session was recorded.
+            renamed = resolve_movement(session, entry.movement)
             if renamed is None:
                 raise HTTPException(status_code=422, detail=f'Unknown movement: {entry.movement}')
             entry.movement = renamed

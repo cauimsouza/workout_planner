@@ -18,8 +18,9 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 import database
-from models import Exercise, Movement, WorkoutDay
+from models import Exercise, Movement
 from movement_names import InvalidMovementName, normalize_movement_name
+from movements import rename_movement
 
 
 def plan_renames(movements: list[Movement], overrides: dict[str, str]) -> tuple[dict[str, str], list[str]]:
@@ -67,7 +68,6 @@ def main() -> int:
         exercise_counts = defaultdict(int)
         for exercise in session.exec(select(Exercise)).all():
             exercise_counts[exercise.exercise_name] += 1
-        days = session.exec(select(WorkoutDay)).all()
 
         groups = defaultdict(list)
         for old, new in renames.items():
@@ -99,30 +99,12 @@ def main() -> int:
         shutil.copy2(database.db_file_name, backup)
         print(f'Backup saved to {backup}')
 
-        conflict_flags = {new: keep for new, _, keep in conflicts}
-        for new, olds in groups.items():
-            if all(old == new for old in olds):
-                continue
-            if new not in dip_belt:
-                session.add(Movement(name=new, dip_belt=conflict_flags.get(new, dip_belt[olds[0]])))
-            elif new in conflict_flags:
-                session.get(Movement, new).dip_belt = conflict_flags[new]
-        session.flush()
-
-        for exercise in session.exec(select(Exercise)).all():
-            if exercise.exercise_name in changes:
-                exercise.exercise_name = changes[exercise.exercise_name]
-                session.add(exercise)
-        for day in days:
-            slots = []
-            for slot in day.slots:
-                movements_in_slot = list(dict.fromkeys(renames.get(name, name) for name in slot['movements']))
-                slots.append({**slot, 'movements': movements_in_slot})
-            day.slots = slots  # Reassign so the JSON column is saved
-            session.add(day)
-        for old in changes:
-            if old not in groups:  # Never delete a name that something else was renamed to
-                session.delete(session.get(Movement, old))
+        # rename_movement updates logged exercises and workout days, merges into an existing
+        # movement with the same name, and remembers the old name for phones with older data.
+        for old, new in changes.items():
+            rename_movement(session, old, new)
+        for new, _, keep in conflicts:
+            session.get(Movement, new).dip_belt = keep
         session.commit()
         print(f'Renamed {len(changes)} movement(s).')
     return 0

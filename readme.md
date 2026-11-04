@@ -150,7 +150,15 @@ Movement names have a standard form (rules in [`movement_names.py`](movement_nam
 - tidy spacing: *Weighted muscle-up (swing back)*.
 
 New movements are converted automatically ("pull up" becomes *Pull-up*), and a name that matches an
-existing movement apart from formatting is refused. To bring older names in line:
+existing movement apart from formatting is refused.
+
+**Renaming a movement.** Admins can fix a typo or shorten a name in **Program → Rename or edit a
+movement**: pick the movement, type the new name, and save. Its dip-belt setting can be changed in
+the same place. The new name is applied everywhere: every user's logged exercises and every workout
+day. Renaming to the name of another movement merges the two, after you confirm. The old name keeps
+working for sessions that phones recorded before the rename and upload later.
+
+To bring all older names in line at once:
 
 ```bash
 docker exec -it workout-tracker python rename_movements.py           # Preview, changes nothing

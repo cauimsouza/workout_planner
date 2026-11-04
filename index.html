@@ -1501,6 +1501,21 @@
         .picker-hint.error {
             color: var(--err);
         }
+        .picker-hint.warn {
+            color: var(--warn);
+        }
+        #movement-editor .sheet label {
+            font-size: 0.9rem;
+        }
+        #movement-editor .sheet input[type="text"] {
+            margin-bottom: 0;
+        }
+        .movement-editor-switch {
+            margin-top: 0.75rem;
+        }
+        .movement-editor-usage {
+            font-size: 0.85rem;
+        }
 
         /* Touch screens (iPhone): hover styles stick after a tap, so undo them. */
         @media (hover: none) {
@@ -1704,7 +1719,10 @@
                 <p class="muted">Loading...</p>
             </div>
 
+            <!-- Admins only: get_root in app.py removes everything between these two markers for other users. -->
             <!-- BEGIN Create Movement -->
+            <h2 class="section-title">Movements</h2>
+            <button type="button" class="add-button" id="edit-movement-button">Rename or edit a movement</button>
             <h2 class="section-title">Create movement</h2>
             <article>
                 <form hx-post="/movements"
