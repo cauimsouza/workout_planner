@@ -1,3 +1,4 @@
+import hashlib
 import html
 import re
 from contextlib import asynccontextmanager
@@ -161,9 +162,8 @@ def get_login():
 @app.get('/', response_class=HTMLResponse)
 def get_root(current_user: User = Depends(get_current_user)):
     html_path = Path(__file__).parent / 'index.html'
-    html = html_path.read_text()
+    html = versioned_scripts(html_path.read_text())
     if not current_user.is_admin:
-        import re
         html = re.sub(
             r'<!-- BEGIN Create Movement -->.*?<!-- END Create Movement -->',
             '',
@@ -171,6 +171,30 @@ def get_root(current_user: User = Depends(get_current_user)):
             flags=re.DOTALL,
         )
     return html
+
+STATIC_DIR = Path(__file__).parent / 'static'
+_static_versions: dict[tuple, str] = {}
+
+def static_version(name: str) -> str:
+    """Short fingerprint of a static file's contents (recomputed when the file changes)."""
+    path = STATIC_DIR / name
+    stat = path.stat()
+    key = (name, stat.st_mtime_ns, stat.st_size)
+    if key not in _static_versions:
+        _static_versions[key] = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return _static_versions[key]
+
+def versioned_scripts(page: str) -> str:
+    """Add a content fingerprint to each script URL: /static/program.js -> /static/program.js?v=3f2a...
+
+    A changed script then has a new URL, so no browser or service worker cache can serve an old
+    copy of it to a new page.
+    """
+    return re.sub(
+        r'src="/static/([\w.-]+\.js)"',
+        lambda match: f'src="/static/{match.group(1)}?v={static_version(match.group(1))}"',
+        page,
+    )
 
 @app.get('/bodyweight', response_class=HTMLResponse)
 def get_bodyweight(

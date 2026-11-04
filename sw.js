@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workout-tracker-v5';
+const CACHE_NAME = 'workout-tracker-v6';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
@@ -79,7 +79,9 @@ self.addEventListener('fetch', (event) => {
                     }
                     return response;
                 })
-                .catch(() => caches.match(event.request))
+                // Offline: the exact copy (scripts have a ?v= fingerprint), else the one cached at install
+                .catch(() => caches.match(event.request).then((cached) =>
+                    cached || caches.match(event.request, { ignoreSearch: true })))
         );
         return;
     }
