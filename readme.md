@@ -19,7 +19,9 @@ online. It runs on a small server such as a Raspberry Pi, behind Cloudflare Acce
 
 **Program.** Your program is a set of *workout days*, each usually done on a fixed weekday. A
 workout day lists its exercises with sets × reps and, optionally, a target **RPE for each week** of
-the cycle (e.g. 7, 7.5, 8, 9: lightest in week 1, heaviest in week 4). An exercise can list
+the cycle (e.g. 7, 7.5, 8, 9: lightest in week 1, heaviest in week 4). Sets and reps are the same
+every week unless you switch an exercise to **varies by week** and give them for each week (e.g.
+3 × 10, 4 × 8, 5 × 6, 2 × 5). An exercise can list
 alternative movements, e.g. *Cable seated row* or *Chest supported rows*.
 
 **Cycle and week.** The app tracks where you are without a calendar. The current cycle is the one

@@ -46,10 +46,14 @@ class WorkoutDay(SQLModel, table=True):
     """A recurring workout in the user's program, e.g. "Primary Pull".
 
     slots is a list of {"movements": [str, ...], "sets": int, "reps": int,
+    "week_targets": [{"sets": int, "reps": int}, ...] | None,
     "rpe_targets": [float, ...] | None}. The movements in a slot are
-    alternatives (e.g. different row variations); rpe_targets holds one target
-    per week of the cycle (days saved by older versions may have a single
-    target for every week).
+    alternatives (e.g. different row variations). week_targets holds sets and
+    reps for each week of the cycle when they change from week to week; when
+    it is missing or None, sets and reps apply to every week (when present,
+    sets and reps equal week 1's). rpe_targets holds one target per week of
+    the cycle (days saved by older versions may have a single target for
+    every week).
     """
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key='user.id', index=True)

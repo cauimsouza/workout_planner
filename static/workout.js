@@ -82,6 +82,12 @@
         return (cycle - 1) * weeks() + (week - 1);
     }
 
+    // Sets and reps planned for a week: from week_targets when they change from week to week.
+    function weekTarget(slot, week) {
+        const target = slot.week_targets && slot.week_targets[week - 1];
+        return target ? { sets: target.sets, reps: target.reps } : { sets: slot.sets, reps: slot.reps };
+    }
+
     function targetRpe(slot, week) {
         const targets = slot.rpe_targets;
         if (!targets || !targets.length) return null;
@@ -213,11 +219,12 @@
             refEntry = latestEntryFor(movement, active.client_id);
             refLabel = refEntry ? `Logged ${formatShortDay(refEntry.date)}` : '';
         }
+        const target = weekTarget(slot, active.week);
         const rpe = targetRpe(slot, active.week);
         const suggested = rpe === null
             ? null
-            : suggestWeight(movement, slot.reps, rpe, reference ? reference.entries : []);
-        return { slot, rpe, refEntry, refLabel, suggested };
+            : suggestWeight(movement, target.reps, rpe, reference ? reference.entries : []);
+        return { slot, target, rpe, refEntry, refLabel, suggested };
     }
 
     function defaultMovement(slot) {
@@ -433,7 +440,8 @@
 
     function targetLabel(slot, week) {
         const rpe = targetRpe(slot, week);
-        return `${slot.sets} × ${slot.reps}${rpe !== null ? ` @ ${fmt(rpe)}` : ''}`;
+        const { sets, reps } = weekTarget(slot, week);
+        return `${sets} × ${reps}${rpe !== null ? ` @ ${fmt(rpe)}` : ''}`;
     }
 
     // The logged session for a workout day and week of a cycle (the latest, if logged twice), or null.
@@ -675,8 +683,8 @@
         // Prefill: what was entered before (when going back), else plan targets and suggested/previous load.
         const keepExisting = existing && existing.movement === movement;
         const values = keepExisting ? existing : {
-            sets: slot.sets,
-            reps: slot.reps,
+            sets: info.target.sets,
+            reps: info.target.reps,
             weight: info.suggested !== null ? info.suggested : (info.refEntry ? info.refEntry.weight : ''),
             rpe: info.rpe,
         };
@@ -686,7 +694,7 @@
                 `<option value="${esc(m)}"${m === movement ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select>`
             : `<h2 class="wz-movement">${esc(movement)}</h2>`;
 
-        const chips = [`<span class="chip">${slot.sets} × ${slot.reps}</span>`];
+        const chips = [`<span class="chip">${info.target.sets} × ${info.target.reps}</span>`];
         if (info.rpe !== null) chips.push(`<span class="chip">RPE ${fmt(info.rpe)}</span>`);
 
         const tiles = [];

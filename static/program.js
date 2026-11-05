@@ -35,10 +35,17 @@
             weekday: day.weekday,
             slots: day.slots.map((slot) => {
                 const targets = slot.rpe_targets || [];
+                const perWeek = slot.week_targets || [];
                 return {
                     movements: [...slot.movements],
                     sets: slot.sets,
                     reps: slot.reps,
+                    volumeMode: perWeek.length ? 'week' : 'same',
+                    // Text, like the RPE fields, so a field can be cleared while typing
+                    volumeWeeks: Array.from({ length: weeks() }, (_, i) => {
+                        const week = perWeek[i] || { sets: slot.sets, reps: slot.reps };
+                        return { sets: String(week.sets), reps: String(week.reps) };
+                    }),
                     rpeMode: targets.length ? 'week' : 'none',
                     // Days saved before RPE was always per week may have one target for every week.
                     rpeWeeks: Array.from({ length: weeks() }, (_, i) =>
@@ -49,7 +56,11 @@
     }
 
     function newSlot() {
-        return { movements: [''], sets: 3, reps: 10, rpeMode: 'none', rpeWeeks: Array(weeks()).fill('') };
+        return {
+            movements: [''], sets: 3, reps: 10,
+            volumeMode: 'same', volumeWeeks: Array.from({ length: weeks() }, () => ({ sets: '3', reps: '10' })),
+            rpeMode: 'none', rpeWeeks: Array(weeks()).fill(''),
+        };
     }
 
     // Returns [payload, problem]: problem is a message for the first thing that needs fixing.
@@ -62,6 +73,20 @@
             const label = `Exercise ${i + 1}`;
             const movements = slot.movements.filter(Boolean);
             if (!movements.length) return [null, `${label}: choose a movement.`];
+            let sets = slot.sets;
+            let reps = slot.reps;
+            let weekTargets = null;
+            if (slot.volumeMode === 'week') {
+                const count = (text, max) => {
+                    const n = Number(String(text).trim());
+                    return String(text).trim() !== '' && Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+                };
+                weekTargets = slot.volumeWeeks.map((week) => ({ sets: count(week.sets, 10), reps: count(week.reps, 20) }));
+                if (weekTargets.some((week) => week.sets === null || week.reps === null)) {
+                    return [null, `${label}: enter 1–10 sets and 1–20 reps for every week.`];
+                }
+                ({ sets, reps } = weekTargets[0]);
+            }
             let rpeTargets = null;
             const parse = (text) => Number(String(text).trim().replace(',', '.'));
             const valid = (n) => String(n) !== '' && Number.isFinite(n) && n >= 6 && n <= 10;
@@ -72,7 +97,7 @@
                 }
                 rpeTargets = values;
             }
-            slots.push({ movements, sets: slot.sets, reps: slot.reps, rpe_targets: rpeTargets });
+            slots.push({ movements, sets, reps, week_targets: weekTargets, rpe_targets: rpeTargets });
         }
         return [{ name, weekday: editing.weekday, slots }, null];
     }
@@ -157,6 +182,27 @@
                 ${j > 0 ? `<button type="button" class="icon-button small" data-remove-alt="${i}:${j}" aria-label="Remove alternative">${ICONS.close}</button>` : ''}
             </div>`).join('');
 
+        const volumeModes = [['same', 'Same every week'], ['week', 'Varies by week']].map(([mode, label]) =>
+            `<button type="button" role="radio" aria-checked="${slot.volumeMode === mode}" data-volume-mode="${i}:${mode}">${label}</button>`).join('');
+        let volumeInputs;
+        if (slot.volumeMode === 'week') {
+            const field = (w, key) => `
+                <input type="text" inputmode="numeric" autocomplete="off" data-volume-week="${i}:${w}:${key}"
+                       aria-label="Week ${w + 1} ${key}" value="${esc(slot.volumeWeeks[w][key])}">`;
+            volumeInputs = `
+                <div class="volume-weeks">
+                    <span></span>${slot.volumeWeeks.map((_, w) => `<span class="volume-week">W${w + 1}</span>`).join('')}
+                    <span class="volume-label">Sets</span>${slot.volumeWeeks.map((_, w) => field(w, 'sets')).join('')}
+                    <span class="volume-label">Reps</span>${slot.volumeWeeks.map((_, w) => field(w, 'reps')).join('')}
+                </div>`;
+        } else {
+            volumeInputs = `
+                <div class="stepper-grid">
+                    ${stepperHtml(`ex-${i}-sets`, 'Sets', slot.sets, 1, 10)}
+                    ${stepperHtml(`ex-${i}-reps`, 'Reps', slot.reps, 1, 20)}
+                </div>`;
+        }
+
         const modes = [['none', 'No RPE'], ['week', 'RPE per week']].map(([mode, label]) =>
             `<button type="button" role="radio" aria-checked="${slot.rpeMode === mode}" data-rpe-mode="${i}:${mode}">${label}</button>`).join('');
         let rpeInputs = '';
@@ -180,10 +226,8 @@
                 </div>
                 ${movements}
                 <button type="button" class="link-button add-alt" data-add-alt="${i}">+ Add alternative</button>
-                <div class="stepper-grid">
-                    ${stepperHtml(`ex-${i}-sets`, 'Sets', slot.sets, 1, 10)}
-                    ${stepperHtml(`ex-${i}-reps`, 'Reps', slot.reps, 1, 20)}
-                </div>
+                <div class="segmented volume-modes" role="radiogroup" aria-label="Sets and reps">${volumeModes}</div>
+                ${volumeInputs}
                 <div class="segmented rpe-modes" role="radiogroup" aria-label="RPE target">${modes}</div>
                 ${rpeInputs}
             </div>`;
@@ -289,6 +333,36 @@
                 }
                 changed();
                 render();
+            });
+        });
+        root.querySelectorAll('[data-volume-mode]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const [i, mode] = at(button.dataset.volumeMode);
+                const slot = editing.slots[i];
+                if (slot.volumeMode === mode) return;
+                if (mode === 'week') {
+                    // Start every week from the current sets and reps
+                    slot.volumeWeeks = slot.volumeWeeks.map(() => ({ sets: String(slot.sets), reps: String(slot.reps) }));
+                } else {
+                    // Back to one value for all weeks: keep week 1's
+                    const first = slot.volumeWeeks[0];
+                    const keep = (text, fallback, max) => {
+                        const n = Number(String(text).trim());
+                        return Number.isInteger(n) && n >= 1 && n <= max ? n : fallback;
+                    };
+                    slot.sets = keep(first.sets, slot.sets, 10);
+                    slot.reps = keep(first.reps, slot.reps, 20);
+                }
+                slot.volumeMode = mode;
+                changed();
+                render();
+            });
+        });
+        root.querySelectorAll('[data-volume-week]').forEach((input) => {
+            input.addEventListener('input', () => {
+                const [i, w, key] = at(input.dataset.volumeWeek);
+                editing.slots[i].volumeWeeks[w][key] = input.value;
+                changed();
             });
         });
         root.querySelectorAll('[data-rpe-week]').forEach((input) => {

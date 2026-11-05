@@ -634,11 +634,16 @@ def get_progress(*,
 
 # --- Program (workout days) and workout sessions ---
 
+class WeekTargetIn(BaseModel):
+    sets: int = PydanticField(ge=MIN_SETS, le=MAX_SETS)
+    reps: int = PydanticField(ge=MIN_REPS, le=MAX_REPS)
+
 class SlotIn(BaseModel):
     """One exercise of a workout day. The movements are alternatives (e.g. row variations)."""
     movements: list[str] = PydanticField(min_length=1)
     sets: int = PydanticField(ge=MIN_SETS, le=MAX_SETS)
     reps: int = PydanticField(ge=MIN_REPS, le=MAX_REPS)
+    week_targets: list[WeekTargetIn] | None = None # Sets and reps for each week of the cycle, or None for the same every week
     rpe_targets: list[float] | None = None # One target per week of the cycle, or None for no RPE
 
 class WorkoutDayIn(BaseModel):
@@ -647,7 +652,7 @@ class WorkoutDayIn(BaseModel):
     slots: list[SlotIn] = PydanticField(min_length=1)
 
 def validate_slots(session: Session, slots: list[SlotIn]) -> list[dict]:
-    """Check movements and RPE targets, and return the slots as stored in WorkoutDay.slots."""
+    """Check movements, sets, reps and RPE targets, and return the slots as stored in WorkoutDay.slots."""
     known = set(session.exec(select(Movement.name)).all())
     result = []
     for number, slot in enumerate(slots, start=1):
@@ -663,7 +668,17 @@ def validate_slots(session: Session, slots: list[SlotIn]) -> list[dict]:
                 raise HTTPException(status_code=422, detail=f'Exercise {number}: give an RPE target for each of the {CYCLE_WEEKS} weeks.')
             if any(not MIN_RPE <= rpe <= MAX_RPE for rpe in rpe_targets):
                 raise HTTPException(status_code=422, detail=f'Exercise {number}: RPE targets must be between {MIN_RPE} and {MAX_RPE}.')
-        result.append({'movements': movements, 'sets': slot.sets, 'reps': slot.reps, 'rpe_targets': rpe_targets})
+        sets, reps = slot.sets, slot.reps
+        week_targets = None
+        if slot.week_targets:
+            if len(slot.week_targets) != CYCLE_WEEKS:
+                raise HTTPException(status_code=422, detail=f'Exercise {number}: give sets and reps for each of the {CYCLE_WEEKS} weeks.')
+            week_targets = [{'sets': w.sets, 'reps': w.reps} for w in slot.week_targets]
+            # sets and reps mirror week 1, so code that ignores week_targets still shows something sensible
+            sets, reps = week_targets[0]['sets'], week_targets[0]['reps']
+            if all(w == week_targets[0] for w in week_targets):
+                week_targets = None
+        result.append({'movements': movements, 'sets': sets, 'reps': reps, 'week_targets': week_targets, 'rpe_targets': rpe_targets})
     return result
 
 def get_user_workout_day(session: Session, user: User, day_id: int) -> WorkoutDay:

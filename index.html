@@ -1402,10 +1402,34 @@
         .ex-card .stepper-grid {
             margin-bottom: 0.9rem;
         }
-        .segmented.rpe-modes {
+        .segmented.rpe-modes,
+        .segmented.volume-modes {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-        .rpe-modes button {
+        .segmented.volume-modes {
+            margin-bottom: 0.6rem;
+        }
+        .volume-weeks {
+            display: grid;
+            grid-template-columns: auto repeat(4, minmax(0, 1fr));
+            gap: 0.4rem 0.5rem;
+            align-items: center;
+            margin-bottom: 0.9rem;
+        }
+        .volume-week,
+        .volume-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .volume-week {
+            text-align: center;
+        }
+        .volume-weeks input {
+            text-align: center;
+            margin-bottom: 0;
+        }
+        .rpe-modes button,
+        .volume-modes button {
             font-size: 0.82rem;
             padding: 0.5rem 0.25rem;
         }
