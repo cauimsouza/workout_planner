@@ -31,6 +31,7 @@ deploy it, see the [README](../readme.md).
 | `movement_names.py` | Standard form for movement names, used when creating and renaming movements |
 | `movements.py` | Renaming, merging and deleting movements, and finding a movement from an out-of-date name (shared by the app and the tool below) |
 | `rename_movements.py` | Command-line tool that renames existing movements to the standard form |
+| `backup.sh`, `backup.env.example` | Off-site backups of the database with restic (run on the host, not in the container; see the README) |
 | `index.html` | Page layout, all CSS, tab routing, theme switching, date and decimal field helpers, progress chart, HTMX forms |
 | `static/workout.js` | Session wizard, History (cycle overview, sessions, trends) and the upload queue for sessions |
 | `static/program.js` | Program editor, the movement picker, and renaming or deleting movements |

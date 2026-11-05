@@ -4,6 +4,7 @@
 # Settings and secrets: passed at runtime with --env-file instead
 .env
 .env.*
+backup.env
 
 # Local databases and their backups: the real database lives in the workout-data volume
 *.db
@@ -28,3 +29,5 @@ docs
 readme.md
 start.sh
 start_docker.sh
+backup.sh
+backup.env.example

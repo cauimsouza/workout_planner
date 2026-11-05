@@ -99,8 +99,7 @@ On an iPhone, open the app in Safari and use **Share → Add to Home Screen** to
 ### Updating
 
 ```bash
-docker stop workout-tracker
-docker cp workout-tracker:/app/data/database.db ~/workout-backup-$(date +%F).db   # Backup first
+./backup.sh   # Backup first (without restic, make a manual copy: see Backups and restoring)
 git pull
 ./start_docker.sh
 ```
@@ -113,8 +112,60 @@ the new version.
 
 ### Backups and restoring
 
-The whole state of the app is one SQLite file. To back it up, stop the container so the copy is
-consistent:
+The whole state of the app is one SQLite file. `backup.sh` copies it while the app keeps running
+(with SQLite's `VACUUM INTO`, so the copy is consistent), checks the copy, and uploads it with
+[restic](https://restic.net) to a Cloudflare R2 bucket. restic encrypts the backups on the Pi and
+keeps a history of snapshots: by default the last 7 days, 8 weeks and 24 months.
+
+**Setting up (once):**
+
+1. **R2 bucket.** In the Cloudflare dashboard, go to **R2**, create a bucket (e.g.
+   `workout-planner-backups`), then **Manage API tokens → Create API token** with **Object Read &
+   Write** on that bucket only. Note the Access Key ID, the Secret Access Key, and your account ID
+   (in the endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`).
+2. **restic.** `sudo apt install restic`
+3. **Settings.** In the project folder:
+
+   ```bash
+   cp backup.env.example backup.env
+   chmod 600 backup.env
+   nano backup.env   # Repository URL, R2 keys, and a long random RESTIC_PASSWORD
+   ```
+
+   Save `RESTIC_PASSWORD` in your password manager too. If the Pi dies, you need it to read the
+   backups, and nobody can recover it for you.
+4. **Repository and first backup.**
+
+   ```bash
+   ./backup.sh init   # Creates the encrypted repository in the bucket
+   ./backup.sh        # First backup
+   ./backup.sh restic snapshots
+   ```
+5. **Every night.** Run `crontab -e` as the user that runs Docker (it must be able to run `docker`
+   without `sudo`), and add:
+
+   ```
+   30 3 * * * /home/pi/workout_planner/backup.sh >> /home/pi/workout-backup.log 2>&1
+   ```
+
+   Adjust the paths to where the project is. Always run backups as the same user: restores look the
+   snapshot up by its path in that user's home folder.
+6. **Alerts (recommended).** Create a free check on [healthchecks.io](https://healthchecks.io) with
+   a one-day period and put its ping URL in `HEALTHCHECK_URL`. You'll get an email if a backup fails
+   or stops running.
+
+**Restoring:**
+
+```bash
+./backup.sh restic snapshots   # List backups
+./backup.sh restore            # Saves the latest one as ./workout-restore-<timestamp>.db
+./backup.sh restore 1a2b3c4d   # Or a specific snapshot
+```
+
+It checks the file and prints the commands that put it in place of the app's database (keeping a
+copy of the current one). Try a restore once after setting up, to know the backups work.
+
+**Manual copy** (without restic): stop the container so the copy is consistent.
 
 ```bash
 docker stop workout-tracker
@@ -122,7 +173,7 @@ docker cp workout-tracker:/app/data/database.db ~/workout-backup-$(date +%F).db
 docker start workout-tracker
 ```
 
-To restore a backup:
+To restore a copy:
 
 ```bash
 docker cp ~/workout-backup-YYYY-MM-DD.db workout-tracker:/app/data/database.db
